@@ -52,6 +52,11 @@ public class StubAiGateway implements AiGateway {
     }
 
     @Override
+    public List<ReviewQuestionDraft> repairReview(RequirementSnapshot snapshot, String validationError) {
+        return review(snapshot);
+    }
+
+    @Override
     public String modelName() {
         return "fixture";
     }
