@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -19,6 +21,18 @@ public class ReviewExceptionHandler {
     @ExceptionHandler(ReviewRequestException.class)
     public ResponseEntity<ApiError> handleBadRequest(ReviewRequestException exception) {
         return ResponseEntity.badRequest().body(new ApiError("INVALID_REQUEST", exception.getMessage(), false));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableRequestBody() {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("INVALID_REQUEST", "请求体格式不正确。", false));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiError> handleUnsupportedMediaType() {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(new ApiError("UNSUPPORTED_MEDIA_TYPE", "请求 Content-Type 必须为 application/json。", false));
     }
 
     @ExceptionHandler(StubInputUnsupportedException.class)
