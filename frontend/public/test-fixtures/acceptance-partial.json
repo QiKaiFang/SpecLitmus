@@ -1,0 +1,40 @@
+{
+  "review": [{
+    "status": 200,
+    "delayMs": 0,
+    "body": {
+      "reviewId": "fixture-acceptance-partial-001",
+      "requirementText": "用户每天可以领取一次优惠券。\n\n新用户可以额外领取一张。",
+      "requirementHash": "fixture-acceptance-partial-only",
+      "paragraphs": [
+        { "id": "P001", "text": "用户每天可以领取一次优惠券。", "start": 0, "end": 14 },
+        { "id": "P002", "text": "新用户可以额外领取一张。", "start": 16, "end": 28 }
+      ],
+      "questions": [
+        { "questionId": "Q001", "type": "AMBIGUITY", "paragraphId": "P001", "quote": "每天", "quoteStart": 2, "quoteEnd": 4, "scenario": "23:59 领取后，次日 00:01 再次领取。", "question": "每天按自然日还是间隔 24 小时计算？", "possibleInterpretations": ["自然日", "滚动 24 小时"] },
+        { "questionId": "Q002", "type": "AMBIGUITY", "paragraphId": "P002", "quote": "新用户", "quoteStart": 16, "quoteEnd": 19, "scenario": "注册三天但从未领券的用户首次领取。", "question": "新用户如何定义？", "possibleInterpretations": [] }
+      ],
+      "metadata": { "model": "fixture", "promptVersion": "review-v2" }
+    }
+  }],
+  "acceptance": [{
+    "status": 200,
+    "delayMs": 0,
+    "body": {
+      "cases": [{
+        "caseId": "C001",
+        "title": "跨北京时间自然日领取",
+        "given": "用户已在北京时间 10 月 1 日 23:59 领取优惠券。",
+        "when": "用户于北京时间 10 月 2 日 00:01 再次领取。",
+        "then": "可按新自然日领取优惠券。",
+        "basis": [
+          { "sourceType": "ORIGINAL", "sourceId": "P001", "quote": "用户每天可以领取一次优惠券。" },
+          { "sourceType": "ANSWER", "sourceId": "Q001", "quote": "按北京时间自然日重置。" }
+        ]
+      }],
+      "pendingQuestionIds": ["Q002"],
+      "warnings": [],
+      "metadata": { "model": "fixture", "promptVersion": "acceptance-v1" }
+    }
+  }]
+}
