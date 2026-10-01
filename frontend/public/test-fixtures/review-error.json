@@ -1,0 +1,13 @@
+{
+  "review": [
+    {
+      "status": 503,
+      "delayMs": 0,
+      "body": {
+        "code": "AI_UNAVAILABLE",
+        "message": "模型服务暂不可用，请稍后重试。",
+        "retryable": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "review": [
+    {
+      "status": 503,
+      "delayMs": 0,
+      "body": {
+        "code": "AI_CONFIGURATION_MISSING",
+        "message": "模型尚未配置，请检查 API Key 和模型设置。",
+        "retryable": true
+      }
+    }
+  ]
+}
