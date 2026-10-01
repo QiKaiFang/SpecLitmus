@@ -1,0 +1,21 @@
+# Java / Maven
+backend/target/
+*.class
+
+# Node / Vue / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+
+# IDE and operating system
+.idea/
+.vscode/
+.DS_Store
+*.log
