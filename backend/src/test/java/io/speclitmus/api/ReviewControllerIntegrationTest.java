@@ -63,6 +63,10 @@ class ReviewControllerIntegrationTest {
             assertFalse(question.path("type").asText().isBlank());
             assertFalse(question.path("paragraphId").asText().isBlank());
             assertFalse(question.path("quote").asText().isBlank());
+            assertTrue(question.path("quoteStart").isInt());
+            assertTrue(question.path("quoteEnd").isInt());
+            assertEquals(question.path("quote").asText(), R1.substring(
+                    question.path("quoteStart").asInt(), question.path("quoteEnd").asInt()));
             assertFalse(question.path("scenario").asText().isBlank());
             assertFalse(question.path("question").asText().isBlank());
             assertTrue(question.path("possibleInterpretations").isArray());
