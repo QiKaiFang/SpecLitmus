@@ -4,6 +4,7 @@ import io.speclitmus.ai.AiModelTimeoutException;
 import io.speclitmus.ai.AiModelUnavailableException;
 import io.speclitmus.ai.AiModelConfigurationException;
 import io.speclitmus.ai.StubInputUnsupportedException;
+import io.speclitmus.acceptance.SessionExpiredException;
 import io.speclitmus.review.InvalidModelOutputException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,12 @@ public class ReviewExceptionHandler {
         logger.warn("Model review output was rejected: {}", exception.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(new ApiError("AI_OUTPUT_INVALID", "模型返回的结果暂不可用，请重试。", true));
+    }
+
+    @ExceptionHandler(SessionExpiredException.class)
+    public ResponseEntity<ApiError> handleSessionExpired() {
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(new ApiError("SESSION_EXPIRED", "审查会话已失效，请重新审查需求。", false));
     }
 
     @ExceptionHandler(AiModelTimeoutException.class)
