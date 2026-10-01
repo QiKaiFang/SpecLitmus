@@ -4,6 +4,7 @@ import { createApiClient } from './api/createApiClient'
 import { ReviewApiError } from './api/apiClient'
 import { reviewR1 } from './data/reviewR1'
 import { clearDraft as clearStoredDraft, loadDraft, saveDraft } from './draftStore'
+import { buildMarkdownReport, downloadMarkdown, reportFilename } from './reportExporter'
 
 const { client, fixtureMode, fixtureScenario } = createApiClient()
 const MAX_REQUIREMENT_LENGTH = 2000
@@ -36,6 +37,7 @@ const sessionExpired = ref(false)
 const restoredAnswerDrafts = ref(initialDraft.answerDrafts)
 const draftWasRestored = ref(Boolean(initialDraft.requirementText || initialDraft.answerDrafts.length))
 const draftStorageError = ref('')
+const exportMessage = ref('')
 
 const characterCount = computed(() => requirementText.value.length)
 const isBlankRequirement = computed(() => !requirementText.value.trim())
@@ -67,6 +69,7 @@ const hasCurrentAcceptance = computed(() =>
   && generatedRequirement.value === requirementText.value
   && generatedAnswerSignature.value === currentAnswerSignature.value,
 )
+const canExport = computed(() => hasCurrentAcceptance.value && !isBusy.value)
 const pendingQuestions = computed(() => {
   const pendingIds = new Set(acceptanceResult.value?.pendingQuestionIds || [])
   return questions.value.filter((question) => pendingIds.has(question.questionId))
@@ -140,6 +143,7 @@ function clearDraft() {
   restoredAnswerDrafts.value = []
   draftWasRestored.value = false
   draftStorageError.value = cleared ? '' : '浏览器未能清除持久化草稿，请检查存储权限。'
+  exportMessage.value = ''
   sessionExpired.value = false
   clearReviewError()
   acceptanceError.value = ''
@@ -150,6 +154,7 @@ function loadExample() {
   requirementText.value = reviewR1
   clearReviewError()
   acceptanceError.value = ''
+  exportMessage.value = ''
   persistDraft()
 }
 
@@ -173,6 +178,7 @@ async function submitReview() {
   generatedRequirement.value = ''
   generatedAnswerSignature.value = ''
   sessionExpired.value = false
+  exportMessage.value = ''
 
   try {
     const result = await client.review(submittedText)
@@ -220,15 +226,39 @@ async function submitAcceptance() {
 function onRequirementInput() {
   clearReviewError()
   acceptanceError.value = ''
+  exportMessage.value = ''
   draftWasRestored.value = false
   persistDraft()
 }
 
 function onAnswerInput() {
   acceptanceError.value = ''
+  exportMessage.value = ''
   restoredAnswerDrafts.value = []
   draftWasRestored.value = false
   persistDraft()
+}
+
+function exportReport() {
+  if (!canExport.value) {
+    exportMessage.value = '当前验收结果已过期，请重新审查或生成后再导出。'
+    return
+  }
+  const now = new Date()
+  const generatedAt = new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'long',
+    timeStyle: 'medium',
+  }).format(now)
+  const markdown = buildMarkdownReport({
+    generatedAt,
+    requirementText: requirementText.value,
+    questions: questions.value,
+    answers: answers.value,
+    acceptanceResult: acceptanceResult.value,
+    reviewMetadata: metadata.value,
+  })
+  downloadMarkdown(markdown, reportFilename(now))
+  exportMessage.value = `已下载 ${reportFilename(now)}`
 }
 
 function typeLabel(type) {
@@ -319,7 +349,7 @@ function selectQuestion(question) {
         <div v-if="isReviewStale" class="review-stale" role="status">
           {{ sessionExpired ? '审查会话已失效，请重新审查；当前文本仍保留。' : '原文已修改，旧审查已过期，请重新审查。' }}
         </div>
-        <p v-if="draftWasRestored" class="draft-notice" role="status">已从此浏览器恢复草稿。为避免混用旧会话，请重新审查后再生成。</p>
+        <p v-if="draftWasRestored" class="draft-notice" role="status">已从此浏览器恢复草稿。为避免混用旧会话，请重新审查后再生成或导出。</p>
         <p v-if="draftStorageError" class="error-message draft-error" role="alert">{{ draftStorageError }}</p>
         <div v-if="restoredAnswerDrafts.length" class="restored-answers">
           <p class="output-label">未绑定的回答草稿</p>
@@ -442,9 +472,20 @@ function selectQuestion(question) {
         </div>
       </section>
 
+      <section class="panel report-panel" aria-labelledby="report-heading">
+        <div class="panel-heading">
+          <div><p class="section-index">04 / REPORT</p><h2 id="report-heading">Markdown 报告</h2></div>
+          <span v-if="hasCurrentAcceptance" class="result-count">当前版本</span>
+        </div>
+        <p class="report-description">导出原需求、审查问题、已确认回答、验收用例、规则依据、待确认项及模型版本。</p>
+        <div v-if="acceptanceResult && !hasCurrentAcceptance" class="acceptance-stale" role="status">需求或回答已变化，旧报告不可导出；请为当前版本重新生成验收清单。</div>
+        <button class="primary-button export-button" type="button" :disabled="!canExport" @click="exportReport">下载 Markdown</button>
+        <p v-if="exportMessage" class="export-message" role="status">{{ exportMessage }}</p>
+      </section>
+
       <section class="panel source-panel" aria-labelledby="source-heading">
         <div class="panel-heading">
-          <div><p class="section-index">04 / EVIDENCE</p><h2 id="source-heading">原文依据</h2></div>
+          <div><p class="section-index">05 / EVIDENCE</p><h2 id="source-heading">原文依据</h2></div>
           <span v-if="selectedQuestion" class="source-selection">{{ selectedQuestion.paragraphId }}</span>
         </div>
         <div v-if="hasReviewResult && sourceParagraphs.length" class="source-list">
