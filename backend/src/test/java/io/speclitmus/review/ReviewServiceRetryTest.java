@@ -44,7 +44,7 @@ class ReviewServiceRetryTest {
         assertEquals("每天", response.questions().getFirst().quote());
         assertEquals(1, aiGateway.reviewCalls);
         assertEquals(1, aiGateway.repairCalls);
-        assertTrue(aiGateway.repairReason.contains("quote matched no paragraph"));
+        assertTrue(aiGateway.repairReason.contains("unknown paragraph ID"));
         assertEquals(1, sessionStore.saveCalls);
         assertNotNull(sessionStore.find(response.reviewId()).orElseThrow());
     }
@@ -61,14 +61,17 @@ class ReviewServiceRetryTest {
         assertEquals("P001", response.questions().getFirst().paragraphId());
         assertEquals(1, aiGateway.reviewCalls);
         assertEquals(1, aiGateway.repairCalls);
-        assertTrue(aiGateway.repairReason.contains("quote matched no paragraph"));
+        assertTrue(aiGateway.repairReason.contains("quote was not found in its paragraph"));
         assertEquals(1, sessionStore.saveCalls);
     }
 
     @Test
-    void correctsWrongParagraphIdWhenQuoteUniquelyMatchesAnotherParagraph() {
+    void repairsWrongParagraphIdInsteadOfPublishingAnAutoCorrectedCitation() {
         aiGateway.initialDrafts = List.of(new ReviewQuestionDraft(QuestionType.AMBIGUITY,
                 "P001", "新用户", "新用户领取优惠券时", "新用户额度如何计算？",
+                List.of("额外一张", "共享一次额度")));
+        aiGateway.repairedDrafts = List.of(new ReviewQuestionDraft(QuestionType.AMBIGUITY,
+                "P002", "新用户", "新用户领取优惠券时", "新用户额度如何计算？",
                 List.of("额外一张", "共享一次额度")));
 
         ReviewResponse response = reviewService.review(REQUIREMENT);
@@ -76,7 +79,7 @@ class ReviewServiceRetryTest {
         assertEquals("P002", response.questions().getFirst().paragraphId());
         assertEquals("新用户", response.questions().getFirst().quote());
         assertEquals(1, aiGateway.reviewCalls);
-        assertEquals(0, aiGateway.repairCalls);
+        assertEquals(1, aiGateway.repairCalls);
         assertEquals(1, sessionStore.saveCalls);
     }
 
@@ -88,7 +91,7 @@ class ReviewServiceRetryTest {
         InvalidModelOutputException exception = assertThrows(InvalidModelOutputException.class,
                 () -> reviewService.review(REQUIREMENT));
 
-        assertTrue(exception.getMessage().contains("quote matched no paragraph"));
+        assertTrue(exception.getMessage().contains("unknown paragraph ID"));
         assertEquals(1, aiGateway.reviewCalls);
         assertEquals(1, aiGateway.repairCalls);
         assertEquals(0, sessionStore.saveCalls);

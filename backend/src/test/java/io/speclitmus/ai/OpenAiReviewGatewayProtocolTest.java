@@ -129,8 +129,23 @@ class OpenAiReviewGatewayProtocolTest {
         JsonNode secondPayload = objectMapper.readTree(secondRequest.path("messages").get(1).path("content").asText());
         assertTrue(firstPayload.path("previousOutputError").isMissingNode());
         assertEquals(R1, secondPayload.path("requirementText").asText());
-        assertEquals("Model quote matched no paragraph at position 2",
+        assertEquals("Model returned a review question with an unknown paragraph ID at position 2",
                 secondPayload.path("previousOutputError").asText());
+    }
+
+    @Test
+    void repairsInvalidJsonWithExactlyOneAdditionalProviderCall() throws Exception {
+        FIRST_MODEL_OUTPUT.set("not-json");
+
+        ReviewResponse response = reviewService.review(R1);
+
+        assertEquals(1, response.questions().size());
+        assertEquals(2, REQUEST_COUNT.get());
+        assertEquals(2, REQUEST_BODIES.size());
+        JsonNode secondRequest = objectMapper.readTree(REQUEST_BODIES.get(1));
+        JsonNode secondPayload = objectMapper.readTree(secondRequest.path("messages").get(1).path("content").asText());
+        assertTrue(secondPayload.path("previousOutputError").asText()
+                .contains("JSON review object"));
     }
 
     private static HttpServer startMockServer() {
