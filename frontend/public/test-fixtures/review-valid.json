@@ -35,7 +35,7 @@
             "possibleInterpretations": []
           }
         ],
-        "metadata": { "model": "fixture", "promptVersion": "review-v1" }
+        "metadata": { "model": "fixture", "promptVersion": "review-v2" }
       }
     }
   ]
