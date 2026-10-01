@@ -22,7 +22,7 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = {"speclitmus.ai.mode=stub", "spring.ai.model.chat=none"})
 @AutoConfigureMockMvc
 @ActiveProfiles("acceptance")
 class ReviewControllerIntegrationTest {
@@ -54,7 +54,7 @@ class ReviewControllerIntegrationTest {
         assertEquals(2, response.path("paragraphs").size());
         assertEquals(2, response.path("questions").size());
         assertEquals("fixture", response.path("metadata").path("model").asText());
-        assertEquals("review-v1", response.path("metadata").path("promptVersion").asText());
+        assertEquals("review-v2", response.path("metadata").path("promptVersion").asText());
 
         Set<String> questionIds = new HashSet<>();
         for (JsonNode question : response.path("questions")) {
@@ -72,5 +72,22 @@ class ReviewControllerIntegrationTest {
         assertNotNull(sessionStore.find(response.path("reviewId").asText()).orElseThrow().createdAt());
         assertEquals("Q001", response.path("questions").get(0).path("questionId").asText());
         assertEquals("Q002", response.path("questions").get(1).path("questionId").asText());
+    }
+
+    @Test
+    void explainsWhenCustomInputIsSubmittedToTheFixedTestGateway() throws Exception {
+        byte[] requestBody = objectMapper.writeValueAsBytes(new ReviewRequest("允许用户修改收货地址。"));
+
+        MvcResult result = mockMvc.perform(post("/api/reviews")
+                        .contentType(APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+
+        JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
+        assertEquals("FIXTURE_INPUT_UNSUPPORTED", response.path("code").asText());
+        assertTrue(response.path("message").asText().contains("真实模型模式"));
+        assertFalse(response.path("retryable").asBoolean());
+        assertFalse(response.has("reviewId"));
     }
 }

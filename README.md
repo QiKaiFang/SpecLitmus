@@ -2,13 +2,13 @@
 
 需求试纸帮助开发者和测试人员检查需求中的歧义与边界：提交需求后生成有原文依据的反例问题，用户补充规则后生成带依据的验收用例，最后导出 Markdown。模型输出是供人复核的建议，不替用户决定业务规则。
 
-当前实现 S1 首轮审查：用户可以提交需求并查看模型生成的反例问题。引用目前作为建议展示，尚未由后端逐字核验；澄清、验收用例、草稿保存和导出尚未实现。
+当前实现 S1 首轮审查：用户可以提交需求并查看模型生成的反例问题。后端核对每条引用是否为所指段落的连续原文；无效模型结果最多重新生成一次。引用定位、高亮、澄清、验收用例、草稿保存和导出尚未实现。
 
 ## 项目逻辑
 
 1. 用户在 Vue 页面粘贴需求；当前显示字符数，2,000 字符上限和拒绝策略属于 S2。
 2. S1 后端规范化换行、按空行分段并建立原文快照，再调用 Spring AI 适配的 OpenAI 兼容聊天模型生成最多 5 个审查问题。
-3. S1 验证问题字段、数量及段落 ID，创建问题 ID 和进程内审查会话。引用显示为模型建议；逐字校验和定位计划在 S3 实现。
+3. 后端验证问题字段、数量、段落 ID 和逐字引用，创建问题 ID 和进程内审查会话。引用定位计划在 S3 实现。
 4. 后续阶段将支持用户回答问题，并只把明确确认的回答作为规则依据，生成最多 8 条 Given/When/Then 验收用例，同时列出待确认问题。
 5. 后续阶段将支持 Markdown 导出和浏览器草稿保存。API Key 由后端从环境变量读取。
 
@@ -39,7 +39,7 @@ docs/requirements/       提供的 PRD、执行清单、测试手册与 Mileston
 
 本机 acceptance 配置不纳入 Git。首次本地运行时，可将 `backend/src/main/resources/application-acceptance.example.yml` 复制为 `application-acceptance.yml`。本地文件既可通过环境变量引用凭据，也可配置 Spring AI 的 `spring.ai.openai.api-key` 和 `spring.ai.openai.base-url`；直接写入的凭据只保留在被 Git 忽略的本地文件中，不要提交。
 
-配置真实模型环境变量后，后端才能使用默认的 `real` 模式：
+如果没有在本机 `application-acceptance.yml` 中配置凭据，先设置真实模型环境变量：
 
 ```sh
 export OPENAI_API_KEY='你的 API 密钥'
@@ -47,7 +47,7 @@ export OPENAI_BASE_URL='https://api.openai.com' # 兼容服务可替换为其 AP
 export OPENAI_MODEL='gpt-4o-mini'
 ```
 
-`OPENAI_BASE_URL`、`OPENAI_MODEL` 和 `AI_REQUEST_TIMEOUT` 都可按服务商调整。Spring AI 的 chat completions 路径也可通过 `spring.ai.openai.chat.completions-path` 或 `OPENAI_CHAT_COMPLETIONS_PATH` 配置。火山引擎 Agent Plan 的兼容路径使用 `/chat/completions`；默认值仍为 `/v1/chat/completions`。请勿将密钥提交到 Git。
+`OPENAI_BASE_URL`、`OPENAI_MODEL` 和 `AI_REQUEST_TIMEOUT` 都可按服务商调整。Spring AI 的 chat completions 路径也可通过 `spring.ai.openai.chat.completions-path` 或 `OPENAI_CHAT_COMPLETIONS_PATH` 配置。火山引擎 Agent Plan 的兼容路径使用 `/chat/completions`；默认值仍为 `/v1/chat/completions`。本机 Agent Plan 实测需要 120 秒读取超时，下面的真实模式命令采用该值。请勿将密钥提交到 Git。
 
 先构建前端静态文件，供 Spring Boot 在 8080 端口提供页面：
 
@@ -57,23 +57,16 @@ npm install
 npm run build
 ```
 
-再启动后端（macOS IntelliJ IDEA 默认 Maven 路径）：
-
-```sh
-cd ../backend
-'/Applications/IntelliJ IDEA.app/Contents/plugins/maven-plugin/lib/maven3/bin/mvn' spring-boot:run
-```
-
-如要使用放在 `application-acceptance.yml` 的 OpenAI 兼容配置，显式启用真实模型：
+审查自定义需求时，从项目根目录启动真实模型后端（macOS IntelliJ IDEA 默认 Maven 路径）：
 
 ```sh
 cd backend
-APP_AI_MODE=real SPRING_AI_MODEL_CHAT=openai \
+APP_AI_MODE=real SPRING_AI_MODEL_CHAT=openai AI_REQUEST_TIMEOUT=120s \
   '/Applications/IntelliJ IDEA.app/Contents/plugins/maven-plugin/lib/maven3/bin/mvn' \
   -Dspring-boot.run.profiles=acceptance spring-boot:run
 ```
 
-打开 `http://127.0.0.1:8080/`。acceptance profile 默认关闭 Spring AI 聊天模型初始化并使用固定网关；真实调用需同时设置 `APP_AI_MODE=real` 和 `SPRING_AI_MODEL_CHAT=openai`。凭据可从环境变量读取，也可由本机 ignored acceptance 配置提供。缺少有效 Key 时，真实模式会在应用启动阶段报错，不会自动切换为固定数据。
+打开 `http://127.0.0.1:8080/`。`application.yml` 默认激活 acceptance profile；直接在 IDEA 运行入口类时，模式取决于本机 ignored `application-acceptance.yml` 和 IDEA 运行配置。仓库提供的 example 文件默认使用固定网关；真实调用需要 `speclitmus.ai.mode=real` 和 `spring.ai.model.chat=openai`。凭据可从环境变量读取，也可由本机 acceptance 配置提供。缺少有效 Key 时，真实模式会在应用启动阶段报错，不会自动切换为固定数据。
 
 无需真实密钥即可启动后端固定验收模式：
 
@@ -84,7 +77,7 @@ APP_AI_MODE=stub APP_TEST_SCENARIO=review-valid \
   spring-boot:run -Dspring-boot.run.profiles=acceptance
 ```
 
-固定模式仍执行实际后端解析、验证和会话保存，只替换模型响应。前端本地开发时，另开终端运行：
+固定模式仅支持页面“载入示例”的 R1 原文；提交自定义需求会收到 `FIXTURE_INPUT_UNSUPPORTED`，不会把固定卡片误当成真实模型结果。固定模式仍执行实际后端解析、验证和会话保存，只替换模型响应。前端本地开发时，另开终端运行：
 
 ```sh
 cd frontend
