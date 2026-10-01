@@ -3,12 +3,20 @@ import { computed, nextTick, ref } from 'vue'
 import { createApiClient } from './api/createApiClient'
 import { ReviewApiError } from './api/apiClient'
 import { reviewR1 } from './data/reviewR1'
+import { clearDraft as clearStoredDraft, loadDraft, saveDraft } from './draftStore'
 
 const { client, fixtureMode, fixtureScenario } = createApiClient()
 const MAX_REQUIREMENT_LENGTH = 2000
 const MAX_ANSWER_LENGTH = 500
+let browserStorage = null
+try {
+  browserStorage = window.localStorage
+} catch {
+  // Browsers may deny storage access in restricted/privacy contexts.
+}
+const initialDraft = loadDraft(browserStorage)
 
-const requirementText = ref('')
+const requirementText = ref(initialDraft.requirementText)
 const reviewedRequirement = ref('')
 const reviewId = ref('')
 const questions = ref([])
@@ -25,6 +33,9 @@ const generatedRequirement = ref('')
 const generatedAnswerSignature = ref('')
 const isGenerating = ref(false)
 const sessionExpired = ref(false)
+const restoredAnswerDrafts = ref(initialDraft.answerDrafts)
+const draftWasRestored = ref(Boolean(initialDraft.requirementText || initialDraft.answerDrafts.length))
+const draftStorageError = ref('')
 
 const characterCount = computed(() => requirementText.value.length)
 const isBlankRequirement = computed(() => !requirementText.value.trim())
@@ -93,17 +104,61 @@ function clearReviewError() {
   reviewErrorRetryable.value = false
 }
 
+function answeredQuestionDrafts() {
+  return questions.value
+    .map((question) => ({
+      questionId: question.questionId,
+      question: question.question,
+      text: answers.value[question.questionId] || '',
+    }))
+    .filter((item) => item.text.trim())
+}
+
+function persistDraft() {
+  const currentDrafts = answeredQuestionDrafts()
+  const saved = saveDraft(browserStorage, {
+    requirementText: requirementText.value,
+    answerDrafts: currentDrafts.length ? currentDrafts : restoredAnswerDrafts.value,
+  })
+  draftStorageError.value = saved ? '' : '浏览器未能保存草稿，请检查存储权限。'
+}
+
+function clearDraft() {
+  if (isBusy.value) return
+  const cleared = clearStoredDraft(browserStorage)
+  requirementText.value = ''
+  reviewedRequirement.value = ''
+  reviewId.value = ''
+  questions.value = []
+  paragraphs.value = []
+  metadata.value = null
+  answers.value = {}
+  selectedQuestionId.value = null
+  acceptanceResult.value = null
+  generatedRequirement.value = ''
+  generatedAnswerSignature.value = ''
+  restoredAnswerDrafts.value = []
+  draftWasRestored.value = false
+  draftStorageError.value = cleared ? '' : '浏览器未能清除持久化草稿，请检查存储权限。'
+  sessionExpired.value = false
+  clearReviewError()
+  acceptanceError.value = ''
+}
+
 function loadExample() {
   if (isBusy.value) return
   requirementText.value = reviewR1
   clearReviewError()
   acceptanceError.value = ''
+  persistDraft()
 }
 
 async function submitReview() {
   if (!canSubmitReview.value) return
 
   const submittedText = requirementText.value
+  const previousAnswerDrafts = answeredQuestionDrafts()
+  if (previousAnswerDrafts.length) restoredAnswerDrafts.value = previousAnswerDrafts
   isReviewing.value = true
   clearReviewError()
   acceptanceError.value = ''
@@ -127,6 +182,7 @@ async function submitReview() {
     answers.value = Object.fromEntries(questions.value.map((question) => [question.questionId, '']))
     metadata.value = result.metadata || null
     reviewedRequirement.value = submittedText
+    persistDraft()
   } catch (error) {
     reviewError.value = error instanceof Error ? error.message : '审查失败，请稍后重试。'
     reviewErrorRetryable.value = !(error instanceof ReviewApiError) || error.retryable
@@ -149,6 +205,8 @@ async function submitAcceptance() {
     acceptanceResult.value = result
     generatedRequirement.value = requirementText.value
     generatedAnswerSignature.value = currentAnswerSignature.value
+    restoredAnswerDrafts.value = []
+    persistDraft()
   } catch (error) {
     if (error instanceof ReviewApiError && error.code === 'SESSION_EXPIRED') {
       sessionExpired.value = true
@@ -162,10 +220,15 @@ async function submitAcceptance() {
 function onRequirementInput() {
   clearReviewError()
   acceptanceError.value = ''
+  draftWasRestored.value = false
+  persistDraft()
 }
 
 function onAnswerInput() {
   acceptanceError.value = ''
+  restoredAnswerDrafts.value = []
+  draftWasRestored.value = false
+  persistDraft()
 }
 
 function typeLabel(type) {
@@ -201,7 +264,7 @@ function selectQuestion(question) {
       <span v-if="fixtureMode || backendFixtureMode" class="fixture-badge">
         {{ fixtureMode ? `固定测试数据 · ${fixtureScenario}` : '后端固定测试模式' }}
       </span>
-      <span v-else class="stage-label">S5 · 澄清与验收</span>
+      <span v-else class="stage-label">S6 · 草稿与导出</span>
     </header>
 
     <section class="intro">
@@ -217,7 +280,10 @@ function selectQuestion(question) {
             <p class="section-index">01 / INPUT</p>
             <h2 id="input-heading">输入需求</h2>
           </div>
-          <button class="text-button" type="button" :disabled="isBusy" @click="loadExample">载入示例</button>
+          <div class="heading-actions">
+            <button class="text-button" type="button" :disabled="isBusy" @click="loadExample">载入示例</button>
+            <button class="text-button text-button--danger" type="button" :disabled="isBusy" @click="clearDraft">清除草稿</button>
+          </div>
         </div>
 
         <label class="visually-hidden" for="requirement-text">需求正文</label>
@@ -252,6 +318,16 @@ function selectQuestion(question) {
         </div>
         <div v-if="isReviewStale" class="review-stale" role="status">
           {{ sessionExpired ? '审查会话已失效，请重新审查；当前文本仍保留。' : '原文已修改，旧审查已过期，请重新审查。' }}
+        </div>
+        <p v-if="draftWasRestored" class="draft-notice" role="status">已从此浏览器恢复草稿。为避免混用旧会话，请重新审查后再生成。</p>
+        <p v-if="draftStorageError" class="error-message draft-error" role="alert">{{ draftStorageError }}</p>
+        <div v-if="restoredAnswerDrafts.length" class="restored-answers">
+          <p class="output-label">未绑定的回答草稿</p>
+          <article v-for="(item, index) in restoredAnswerDrafts" :key="`${item.questionId}-${index}`">
+            <span>{{ item.questionId || `问题 ${index + 1}` }} · {{ item.question || '旧审查问题' }}</span>
+            <p>{{ item.text }}</p>
+          </article>
+          <p>这些回答不会自动填入新卡片，请根据新审查结果重新确认。</p>
         </div>
       </section>
 
