@@ -19,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -38,6 +39,8 @@ class OpenAiReviewGatewayProtocolTest {
     private static final AtomicReference<String> REQUEST_PATH = new AtomicReference<>();
     private static final AtomicReference<String> REQUEST_AUTHORIZATION = new AtomicReference<>();
     private static final AtomicReference<String> REQUEST_BODY = new AtomicReference<>();
+    private static final List<String> REQUEST_BODIES = new CopyOnWriteArrayList<>();
+    private static final AtomicReference<String> FIRST_MODEL_OUTPUT = new AtomicReference<>();
     private static final AtomicBoolean DELAY_NEXT_RESPONSE = new AtomicBoolean();
     private static final AtomicInteger REQUEST_COUNT = new AtomicInteger();
     private static final HttpServer MOCK_SERVER = startMockServer();
@@ -53,14 +56,19 @@ class OpenAiReviewGatewayProtocolTest {
         REQUEST_PATH.set(null);
         REQUEST_AUTHORIZATION.set(null);
         REQUEST_BODY.set(null);
+        REQUEST_BODIES.clear();
+        FIRST_MODEL_OUTPUT.set(null);
         REQUEST_COUNT.set(0);
         DELAY_NEXT_RESPONSE.set(false);
     }
 
     @DynamicPropertySource
     static void configureOpenAiEndpoint(DynamicPropertyRegistry registry) {
+        registry.add("speclitmus.ai.mode", () -> "real");
+        registry.add("spring.ai.model.chat", () -> "openai");
         registry.add("spring.ai.openai.api-key", () -> "integration-test-key");
         registry.add("spring.ai.openai.base-url", () -> "http://127.0.0.1:" + MOCK_SERVER.getAddress().getPort());
+        registry.add("spring.ai.openai.chat.completions-path", () -> "/v1/chat/completions");
         registry.add("spring.ai.openai.chat.options.model", () -> "protocol-test-model");
         registry.add("spring.http.client.read-timeout", () -> "200ms");
         registry.add("speclitmus.ai.model", () -> "protocol-test-model");
@@ -99,6 +107,32 @@ class OpenAiReviewGatewayProtocolTest {
         assertEquals(1, REQUEST_COUNT.get());
     }
 
+    @Test
+    void retriesInvalidParagraphAndQuoteWithValidationFeedback() throws Exception {
+        FIRST_MODEL_OUTPUT.set("""
+                {"questions":[
+                  {"type":"AMBIGUITY","paragraphId":"P001","quote":"每天","scenario":"在当天领券后跨到次日再次领取。","question":"每天按自然日还是间隔 24 小时计算？","possibleInterpretations":["自然日","滚动 24 小时"]},
+                  {"type":"AMBIGUITY","paragraphId":"P999","quote":"不存在的原文","scenario":"新用户领取。","question":"能否额外领取？","possibleInterpretations":[]}
+                ]}
+                """);
+
+        ReviewResponse response = reviewService.review(R1);
+
+        assertEquals(1, response.questions().size());
+        assertEquals("P001", response.questions().getFirst().paragraphId());
+        assertEquals(2, REQUEST_COUNT.get());
+        assertEquals(2, REQUEST_BODIES.size());
+
+        JsonNode firstRequest = objectMapper.readTree(REQUEST_BODIES.get(0));
+        JsonNode secondRequest = objectMapper.readTree(REQUEST_BODIES.get(1));
+        JsonNode firstPayload = objectMapper.readTree(firstRequest.path("messages").get(1).path("content").asText());
+        JsonNode secondPayload = objectMapper.readTree(secondRequest.path("messages").get(1).path("content").asText());
+        assertTrue(firstPayload.path("previousOutputError").isMissingNode());
+        assertEquals(R1, secondPayload.path("requirementText").asText());
+        assertEquals("Model quote matched no paragraph at position 2",
+                secondPayload.path("previousOutputError").asText());
+    }
+
     private static HttpServer startMockServer() {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -111,10 +145,12 @@ class OpenAiReviewGatewayProtocolTest {
     }
 
     private static void respondToChatCompletion(HttpExchange exchange) throws IOException {
-        REQUEST_COUNT.incrementAndGet();
+        int requestNumber = REQUEST_COUNT.incrementAndGet();
         REQUEST_PATH.set(exchange.getRequestURI().getPath());
         REQUEST_AUTHORIZATION.set(exchange.getRequestHeaders().getFirst("Authorization"));
-        REQUEST_BODY.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        REQUEST_BODY.set(requestBody);
+        REQUEST_BODIES.add(requestBody);
 
         if (DELAY_NEXT_RESPONSE.compareAndSet(true, false)) {
             try {
@@ -131,7 +167,9 @@ class OpenAiReviewGatewayProtocolTest {
                 "model", "protocol-test-model",
                 "choices", List.of(Map.of(
                         "index", 0,
-                        "message", Map.of("role", "assistant", "content", MODEL_OUTPUT),
+                        "message", Map.of("role", "assistant", "content",
+                                requestNumber == 1 && FIRST_MODEL_OUTPUT.get() != null
+                                        ? FIRST_MODEL_OUTPUT.get() : MODEL_OUTPUT),
                         "finish_reason", "stop"
                 )),
                 "usage", Map.of("prompt_tokens", 1, "completion_tokens", 1, "total_tokens", 2)
