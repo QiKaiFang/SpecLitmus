@@ -2,12 +2,15 @@ package io.speclitmus.api;
 
 import io.speclitmus.ai.AiModelTimeoutException;
 import io.speclitmus.ai.AiModelUnavailableException;
+import io.speclitmus.ai.AiModelConfigurationException;
 import io.speclitmus.ai.StubInputUnsupportedException;
 import io.speclitmus.review.InvalidModelOutputException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -19,6 +22,18 @@ public class ReviewExceptionHandler {
     @ExceptionHandler(ReviewRequestException.class)
     public ResponseEntity<ApiError> handleBadRequest(ReviewRequestException exception) {
         return ResponseEntity.badRequest().body(new ApiError("INVALID_REQUEST", exception.getMessage(), false));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableRequestBody() {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("INVALID_REQUEST", "请求体格式不正确。", false));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiError> handleUnsupportedMediaType() {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(new ApiError("UNSUPPORTED_MEDIA_TYPE", "请求 Content-Type 必须为 application/json。", false));
     }
 
     @ExceptionHandler(StubInputUnsupportedException.class)
@@ -46,8 +61,15 @@ public class ReviewExceptionHandler {
                 .body(new ApiError("AI_UNAVAILABLE", "模型服务未配置或暂不可用。", true));
     }
 
+    @ExceptionHandler(AiModelConfigurationException.class)
+    public ResponseEntity<ApiError> handleModelConfiguration() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ApiError("AI_CONFIGURATION_MISSING", "模型尚未配置，请检查 API Key 和模型设置。", true));
+    }
+
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleUnexpectedFailure() {
+    public ResponseEntity<ApiError> handleUnexpectedFailure(Exception exception) {
+        logger.error("Unexpected review request failure", exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiError("INTERNAL_ERROR", "请求处理失败，请稍后重试。", false));
     }

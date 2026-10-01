@@ -24,6 +24,7 @@ import java.util.stream.IntStream;
 @Service
 public class ReviewService {
 
+    private static final int MAX_REQUIREMENT_LENGTH = 2_000;
     private static final int MAX_QUESTIONS = 5;
     private static final Logger logger = LoggerFactory.getLogger(ReviewService.class);
 
@@ -46,6 +47,9 @@ public class ReviewService {
     public ReviewResponse review(String requirementText) {
         if (requirementText == null || requirementText.isBlank()) {
             throw new ReviewRequestException("需求文本不能为空。");
+        }
+        if (requirementText.length() > MAX_REQUIREMENT_LENGTH) {
+            throw new ReviewRequestException("需求文本不能超过 2,000 个字符。");
         }
 
         RequirementSnapshot snapshot = requirementParser.parse(requirementText);
