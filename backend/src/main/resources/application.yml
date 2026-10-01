@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: speclitmus-backend
+
+server:
+  address: 127.0.0.1
+  port: 8080
