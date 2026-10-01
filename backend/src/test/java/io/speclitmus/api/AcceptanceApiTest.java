@@ -115,6 +115,29 @@ class AcceptanceApiTest {
         assertEquals(1, response.warnings().size());
     }
 
+    @Test
+    void evictsTheOldestReviewAfterTwentySessionsButKeepsTheLatestUsable() throws Exception {
+        Fixture fixture = fixture("workflow-empty");
+        ReviewResponse first = fixture.reviewService().review(R1);
+        ReviewResponse latest = first;
+        for (int index = 0; index < 20; index++) {
+            latest = fixture.reviewService().review(R1);
+        }
+
+        fixture.mockMvc().perform(post("/api/reviews/{reviewId}/acceptance", first.reviewId())
+                        .contentType("application/json")
+                        .content("{\"answers\":[]}"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("SESSION_EXPIRED"));
+
+        fixture.mockMvc().perform(post("/api/reviews/{reviewId}/acceptance", latest.reviewId())
+                        .contentType("application/json")
+                        .content("{\"answers\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cases").isEmpty())
+                .andExpect(jsonPath("$.warnings[0]").isNotEmpty());
+    }
+
     private Fixture fixture(String scenario) {
         ReviewSessionStore store = new ReviewSessionStore();
         StubAiGateway gateway = new StubAiGateway(scenario);
