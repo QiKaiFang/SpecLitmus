@@ -58,9 +58,16 @@ public class OpenAiReviewGateway implements AiGateway {
     }
 
     private List<ReviewQuestionDraft> generateReview(RequirementSnapshot snapshot, String validationError) {
-        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
+        ChatClient.Builder builder;
+        try {
+            builder = chatClientBuilderProvider.getIfAvailable();
+        } catch (Exception exception) {
+            // With the chat model intentionally disabled, Spring's lazy ChatClient
+            // factory can fail while resolving its missing ChatModel dependency.
+            throw new AiModelConfigurationException(exception);
+        }
         if (builder == null) {
-            throw new AiModelUnavailableException();
+            throw new AiModelConfigurationException();
         }
 
         String rawResponse;

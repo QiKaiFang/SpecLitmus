@@ -19,15 +19,32 @@ public class StubAiGateway implements AiGateway {
 
     private final String scenario;
 
-    public StubAiGateway(@Value("${speclitmus.test.scenario:review-valid}") String scenario) {
+    public StubAiGateway(@Value("${APP_TEST_SCENARIO:${speclitmus.test.scenario:review-valid}}") String scenario) {
         this.scenario = scenario;
     }
 
     @Override
     public List<ReviewQuestionDraft> review(RequirementSnapshot snapshot) {
-        if (!"review-valid".equals(scenario)) {
-            throw new AiModelUnavailableException();
-        }
+        return switch (scenario) {
+            case "review-valid" -> reviewValid(snapshot);
+            case "review-empty" -> List.of();
+            case "unavailable" -> throw new AiModelUnavailableException();
+            case "timeout" -> throw new AiModelTimeoutException(new RuntimeException("fixture timeout"));
+            default -> throw new AiModelUnavailableException();
+        };
+    }
+
+    @Override
+    public List<ReviewQuestionDraft> repairReview(RequirementSnapshot snapshot, String validationError) {
+        return review(snapshot);
+    }
+
+    @Override
+    public String modelName() {
+        return "fixture";
+    }
+
+    private List<ReviewQuestionDraft> reviewValid(RequirementSnapshot snapshot) {
         if (!REVIEW_VALID_REQUIREMENT.equals(snapshot.requirementText())) {
             throw new StubInputUnsupportedException();
         }
@@ -49,15 +66,5 @@ public class StubAiGateway implements AiGateway {
                         List.of()
                 )
         );
-    }
-
-    @Override
-    public List<ReviewQuestionDraft> repairReview(RequirementSnapshot snapshot, String validationError) {
-        return review(snapshot);
-    }
-
-    @Override
-    public String modelName() {
-        return "fixture";
     }
 }
