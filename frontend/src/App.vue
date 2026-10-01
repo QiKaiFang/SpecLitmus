@@ -1,46 +1,103 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { createApiClient } from './api/createApiClient'
+import { ReviewApiError } from './api/apiClient'
 import { reviewR1 } from './data/reviewR1'
 
 const { client, fixtureMode, fixtureScenario } = createApiClient()
+const MAX_REQUIREMENT_LENGTH = 2000
 const requirementText = ref('')
 const reviewedRequirement = ref('')
 const questions = ref([])
+const paragraphs = ref([])
 const metadata = ref(null)
 const errorMessage = ref('')
+const errorRetryable = ref(false)
 const isReviewing = ref(false)
+const selectedQuestionId = ref(null)
 
 const characterCount = computed(() => requirementText.value.length)
+const isBlankRequirement = computed(() => !requirementText.value.trim())
+const isOverCharacterLimit = computed(() => characterCount.value > MAX_REQUIREMENT_LENGTH)
+const canSubmitReview = computed(() =>
+  !isReviewing.value && !isBlankRequirement.value && !isOverCharacterLimit.value,
+)
+const backendFixtureMode = computed(() => metadata.value?.model === 'fixture')
 const hasCurrentResult = computed(() =>
   reviewedRequirement.value !== '' && reviewedRequirement.value === requirementText.value,
 )
+const selectedQuestion = computed(() =>
+  questions.value.find((question) => question.questionId === selectedQuestionId.value) || null,
+)
+const sourceParagraphs = computed(() => {
+  const selected = selectedQuestion.value
+  return paragraphs.value.map((paragraph) => {
+    if (selected?.paragraphId !== paragraph.id) {
+      return { ...paragraph, before: paragraph.text, highlight: '', after: '', isHighlighted: false }
+    }
+
+    const start = selected.quoteStart - paragraph.start
+    const end = selected.quoteEnd - paragraph.start
+    const hasValidRange = Number.isInteger(selected.quoteStart)
+      && Number.isInteger(selected.quoteEnd)
+      && start >= 0
+      && end > start
+      && end <= paragraph.text.length
+      && paragraph.text.slice(start, end) === selected.quote
+
+    if (!hasValidRange) {
+      return { ...paragraph, before: paragraph.text, highlight: '', after: '', isHighlighted: false }
+    }
+
+    return {
+      ...paragraph,
+      before: paragraph.text.slice(0, start),
+      highlight: paragraph.text.slice(start, end),
+      after: paragraph.text.slice(end),
+      isHighlighted: true,
+    }
+  })
+})
 
 function loadExample() {
+  if (isReviewing.value) return
   requirementText.value = reviewR1
+  clearError()
+}
+
+function clearError() {
   errorMessage.value = ''
+  errorRetryable.value = false
 }
 
 async function submitReview() {
-  if (isReviewing.value || !requirementText.value.trim()) return
+  if (!canSubmitReview.value) return
 
   const submittedText = requirementText.value
   isReviewing.value = true
-  errorMessage.value = ''
+  clearError()
   questions.value = []
+  paragraphs.value = []
   metadata.value = null
   reviewedRequirement.value = ''
+  selectedQuestionId.value = null
 
   try {
     const result = await client.review(submittedText)
-    questions.value = result.questions || []
+    questions.value = Array.isArray(result.questions) ? result.questions : []
+    paragraphs.value = Array.isArray(result.paragraphs) ? result.paragraphs : []
     metadata.value = result.metadata || null
     reviewedRequirement.value = submittedText
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '审查失败，请稍后重试。'
+    errorRetryable.value = !(error instanceof ReviewApiError) || error.retryable
   } finally {
     isReviewing.value = false
   }
+}
+
+function retryReview() {
+  submitReview()
 }
 
 function typeLabel(type) {
@@ -49,6 +106,16 @@ function typeLabel(type) {
     POSSIBLE_CONFLICT: '可能冲突',
     MISSING_BOUNDARY: '缺少边界',
   }[type] || type
+}
+
+function selectQuestion(question) {
+  selectedQuestionId.value = question.questionId
+  void nextTick(() => {
+    document.getElementById(`source-paragraph-${question.paragraphId}`)?.scrollIntoView?.({
+      behavior: 'smooth',
+      block: 'center',
+    })
+  })
 }
 </script>
 
@@ -59,10 +126,10 @@ function typeLabel(type) {
         <span class="brand-mark" aria-hidden="true">试</span>
         <span>需求试纸</span>
       </a>
-      <span v-if="fixtureMode" class="fixture-badge">
-        固定测试数据 · {{ fixtureScenario }}
+      <span v-if="fixtureMode || backendFixtureMode" class="fixture-badge">
+        {{ fixtureMode ? `固定测试数据 · ${fixtureScenario}` : '后端固定测试模式' }}
       </span>
-      <span v-else class="stage-label">S1 · 首轮审查</span>
+      <span v-else class="stage-label">S4 · 有界修复</span>
     </header>
 
     <section class="intro">
@@ -78,7 +145,9 @@ function typeLabel(type) {
             <p class="section-index">01 / INPUT</p>
             <h2 id="input-heading">输入需求</h2>
           </div>
-          <button class="text-button" type="button" @click="loadExample">载入示例</button>
+          <button class="text-button" type="button" :disabled="isReviewing" @click="loadExample">
+            载入示例
+          </button>
         </div>
 
         <label class="visually-hidden" for="requirement-text">需求正文</label>
@@ -87,21 +156,39 @@ function typeLabel(type) {
           v-model="requirementText"
           placeholder="粘贴一段功能需求，描述越具体越容易发现边界……"
           spellcheck="false"
+          :disabled="isReviewing"
+          :aria-invalid="isOverCharacterLimit"
+          aria-describedby="requirement-limit"
+          @input="clearError"
         ></textarea>
 
         <div class="input-footer">
-          <span>{{ characterCount }} 字符</span>
+          <span :class="{ 'character-count--invalid': isOverCharacterLimit }">
+            {{ characterCount }} / {{ MAX_REQUIREMENT_LENGTH }} 字符
+          </span>
           <button
             class="primary-button"
             type="button"
-            :disabled="isReviewing || !requirementText.trim()"
+            :disabled="!canSubmitReview"
             @click="submitReview"
           >
             <span v-if="isReviewing" class="spinner" aria-hidden="true"></span>
             {{ isReviewing ? '正在审查…' : '审查需求' }}
           </button>
         </div>
-        <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
+        <p id="requirement-limit" class="input-hint" :class="{ 'input-hint--invalid': isOverCharacterLimit }">
+          <template v-if="isBlankRequirement">请输入需求正文后再审查。</template>
+          <template v-else-if="isOverCharacterLimit">
+            已超过 {{ characterCount - MAX_REQUIREMENT_LENGTH }} 字符，请删减至 {{ MAX_REQUIREMENT_LENGTH }} 字符以内。
+          </template>
+          <template v-else>需求正文最多 {{ MAX_REQUIREMENT_LENGTH }} 字符。</template>
+        </p>
+        <div v-if="errorMessage" class="error-notice" role="alert">
+          <p class="error-message">{{ errorMessage }}</p>
+          <button v-if="errorRetryable" class="retry-button" type="button" :disabled="!canSubmitReview" @click="retryReview">
+            重试
+          </button>
+        </div>
       </section>
 
       <section class="results" aria-labelledby="results-heading" aria-live="polite">
@@ -123,7 +210,18 @@ function typeLabel(type) {
           <p>这不代表需求完全正确，仍建议结合实际业务复核。</p>
         </div>
         <div v-else-if="hasCurrentResult" class="question-list">
-          <article v-for="(item, index) in questions" :key="item.questionId" class="question-card">
+          <article
+            v-for="(item, index) in questions"
+            :key="item.questionId"
+            class="question-card"
+            :class="{ 'question-card--selected': selectedQuestionId === item.questionId }"
+            role="button"
+            tabindex="0"
+            :aria-current="selectedQuestionId === item.questionId ? 'true' : undefined"
+            @click="selectQuestion(item)"
+            @keydown.enter.prevent="selectQuestion(item)"
+            @keydown.space.prevent="selectQuestion(item)"
+          >
             <div class="card-topline">
               <span class="card-number">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="type-badge">{{ typeLabel(item.type) }}</span>
@@ -159,11 +257,50 @@ function typeLabel(type) {
           模型 {{ metadata.model }} <span>·</span> Prompt {{ metadata.promptVersion }}
         </p>
       </section>
+
+      <section class="panel source-panel" aria-labelledby="source-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="section-index">03 / EVIDENCE</p>
+            <h2 id="source-heading">原文依据</h2>
+          </div>
+          <span v-if="selectedQuestion" class="source-selection">{{ selectedQuestion.paragraphId }}</span>
+        </div>
+
+        <div v-if="hasCurrentResult && sourceParagraphs.length" class="source-list">
+          <article
+            v-for="paragraph in sourceParagraphs"
+            :id="`source-paragraph-${paragraph.id}`"
+            :key="paragraph.id"
+            class="source-paragraph"
+            :class="{ 'source-paragraph--selected': paragraph.isHighlighted }"
+          >
+            <div class="source-paragraph-heading">
+              <span>{{ paragraph.id }}</span>
+              <span>{{ paragraph.start }}–{{ paragraph.end }}</span>
+            </div>
+            <p class="source-text">
+              <template v-if="paragraph.isHighlighted">
+                <span>{{ paragraph.before }}</span><mark>{{ paragraph.highlight }}</mark><span>{{ paragraph.after }}</span>
+              </template>
+              <template v-else>{{ paragraph.before }}</template>
+            </p>
+          </article>
+        </div>
+        <div v-else-if="hasCurrentResult" class="source-state">
+          <span class="empty-icon" aria-hidden="true">✓</span>
+          <p>本次审查没有可定位的原文段落。</p>
+        </div>
+        <div v-else class="source-state">
+          <span class="initial-icon" aria-hidden="true">⌁</span>
+          <p>点击审查卡片后，可在这里核对完整原文与高亮引用。</p>
+        </div>
+      </section>
     </div>
 
     <footer class="page-footer">
       <span>模型输出是辅助审查建议，业务规则仍由你确认。</span>
-      <span>引用尚未经过后端逐字核验</span>
+      <span>引用已与原文逐字核对，问题语义仍需人工复核</span>
     </footer>
   </main>
 </template>
