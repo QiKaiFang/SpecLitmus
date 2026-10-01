@@ -15,6 +15,8 @@ import java.util.List;
 @ConditionalOnProperty(prefix = "speclitmus.ai", name = "mode", havingValue = "stub", matchIfMissing = true)
 public class StubAiGateway implements AiGateway {
 
+    private static final String REVIEW_VALID_REQUIREMENT = "用户每天可以领取一次优惠券。\n\n新用户可以额外领取一张。";
+
     private final String scenario;
 
     public StubAiGateway(@Value("${speclitmus.test.scenario:review-valid}") String scenario) {
@@ -25,6 +27,9 @@ public class StubAiGateway implements AiGateway {
     public List<ReviewQuestionDraft> review(RequirementSnapshot snapshot) {
         if (!"review-valid".equals(scenario)) {
             throw new AiModelUnavailableException();
+        }
+        if (!REVIEW_VALID_REQUIREMENT.equals(snapshot.requirementText())) {
+            throw new StubInputUnsupportedException();
         }
         return List.of(
                 new ReviewQuestionDraft(
