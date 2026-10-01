@@ -1,47 +1,32 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { createApiClient } from './api/createApiClient'
-import { ReviewApiError } from './api/apiClient'
 import { reviewR1 } from './data/reviewR1'
 
 const { client, fixtureMode, fixtureScenario } = createApiClient()
-const MAX_REQUIREMENT_LENGTH = 2000
 const requirementText = ref('')
 const reviewedRequirement = ref('')
 const questions = ref([])
 const metadata = ref(null)
 const errorMessage = ref('')
-const errorRetryable = ref(false)
 const isReviewing = ref(false)
 
 const characterCount = computed(() => requirementText.value.length)
-const isBlankRequirement = computed(() => !requirementText.value.trim())
-const isOverCharacterLimit = computed(() => characterCount.value > MAX_REQUIREMENT_LENGTH)
-const canSubmitReview = computed(() =>
-  !isReviewing.value && !isBlankRequirement.value && !isOverCharacterLimit.value,
-)
-const backendFixtureMode = computed(() => metadata.value?.model === 'fixture')
 const hasCurrentResult = computed(() =>
   reviewedRequirement.value !== '' && reviewedRequirement.value === requirementText.value,
 )
 
 function loadExample() {
-  if (isReviewing.value) return
   requirementText.value = reviewR1
-  clearError()
-}
-
-function clearError() {
   errorMessage.value = ''
-  errorRetryable.value = false
 }
 
 async function submitReview() {
-  if (!canSubmitReview.value) return
+  if (isReviewing.value || !requirementText.value.trim()) return
 
   const submittedText = requirementText.value
   isReviewing.value = true
-  clearError()
+  errorMessage.value = ''
   questions.value = []
   metadata.value = null
   reviewedRequirement.value = ''
@@ -53,14 +38,9 @@ async function submitReview() {
     reviewedRequirement.value = submittedText
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '审查失败，请稍后重试。'
-    errorRetryable.value = !(error instanceof ReviewApiError) || error.retryable
   } finally {
     isReviewing.value = false
   }
-}
-
-function retryReview() {
-  submitReview()
 }
 
 function typeLabel(type) {
@@ -79,10 +59,10 @@ function typeLabel(type) {
         <span class="brand-mark" aria-hidden="true">试</span>
         <span>需求试纸</span>
       </a>
-      <span v-if="fixtureMode || backendFixtureMode" class="fixture-badge">
-        {{ fixtureMode ? `固定测试数据 · ${fixtureScenario}` : '后端固定测试模式' }}
+      <span v-if="fixtureMode" class="fixture-badge">
+        固定测试数据 · {{ fixtureScenario }}
       </span>
-      <span v-else class="stage-label">S2 · 状态反馈</span>
+      <span v-else class="stage-label">S1 · 首轮审查</span>
     </header>
 
     <section class="intro">
@@ -98,9 +78,7 @@ function typeLabel(type) {
             <p class="section-index">01 / INPUT</p>
             <h2 id="input-heading">输入需求</h2>
           </div>
-          <button class="text-button" type="button" :disabled="isReviewing" @click="loadExample">
-            载入示例
-          </button>
+          <button class="text-button" type="button" @click="loadExample">载入示例</button>
         </div>
 
         <label class="visually-hidden" for="requirement-text">需求正文</label>
@@ -109,39 +87,21 @@ function typeLabel(type) {
           v-model="requirementText"
           placeholder="粘贴一段功能需求，描述越具体越容易发现边界……"
           spellcheck="false"
-          :disabled="isReviewing"
-          :aria-invalid="isOverCharacterLimit"
-          aria-describedby="requirement-limit"
-          @input="clearError"
         ></textarea>
 
         <div class="input-footer">
-          <span :class="{ 'character-count--invalid': isOverCharacterLimit }">
-            {{ characterCount }} / {{ MAX_REQUIREMENT_LENGTH }} 字符
-          </span>
+          <span>{{ characterCount }} 字符</span>
           <button
             class="primary-button"
             type="button"
-            :disabled="!canSubmitReview"
+            :disabled="isReviewing || !requirementText.trim()"
             @click="submitReview"
           >
             <span v-if="isReviewing" class="spinner" aria-hidden="true"></span>
             {{ isReviewing ? '正在审查…' : '审查需求' }}
           </button>
         </div>
-        <p id="requirement-limit" class="input-hint" :class="{ 'input-hint--invalid': isOverCharacterLimit }">
-          <template v-if="isBlankRequirement">请输入需求正文后再审查。</template>
-          <template v-else-if="isOverCharacterLimit">
-            已超过 {{ characterCount - MAX_REQUIREMENT_LENGTH }} 字符，请删减至 {{ MAX_REQUIREMENT_LENGTH }} 字符以内。
-          </template>
-          <template v-else>需求正文最多 {{ MAX_REQUIREMENT_LENGTH }} 字符。</template>
-        </p>
-        <div v-if="errorMessage" class="error-notice" role="alert">
-          <p class="error-message">{{ errorMessage }}</p>
-          <button v-if="errorRetryable" class="retry-button" type="button" :disabled="!canSubmitReview" @click="retryReview">
-            重试
-          </button>
-        </div>
+        <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
       </section>
 
       <section class="results" aria-labelledby="results-heading" aria-live="polite">
@@ -203,7 +163,7 @@ function typeLabel(type) {
 
     <footer class="page-footer">
       <span>模型输出是辅助审查建议，业务规则仍由你确认。</span>
-      <span>引用已与原文逐字核对，问题语义仍需人工复核</span>
+      <span>引用尚未经过后端逐字核验</span>
     </footer>
   </main>
 </template>

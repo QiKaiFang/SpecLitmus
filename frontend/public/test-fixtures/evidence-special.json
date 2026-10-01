@@ -1,0 +1,54 @@
+{
+  "review": [
+    {
+      "status": 200,
+      "delayMs": 0,
+      "body": {
+        "reviewId": "fixture-evidence-special-001",
+        "requirementText": "😀用户每天可以领取一次优惠券。\n\n用户每天领取一次。系统每天重置。\n\n<b>规则</b> 每天可领取一次。",
+        "requirementHash": "fixture-evidence-special-only",
+        "paragraphs": [
+          { "id": "P001", "text": "😀用户每天可以领取一次优惠券。", "start": 0, "end": 16 },
+          { "id": "P002", "text": "用户每天领取一次。系统每天重置。", "start": 18, "end": 34 },
+          { "id": "P003", "text": "<b>规则</b> 每天可领取一次。", "start": 36, "end": 54 }
+        ],
+        "questions": [
+          {
+            "questionId": "Q001",
+            "type": "AMBIGUITY",
+            "paragraphId": "P001",
+            "quote": "每天",
+            "quoteStart": 4,
+            "quoteEnd": 6,
+            "scenario": "表情符号后的用户在当天第二次领取优惠券。",
+            "question": "每天按自然日还是滚动 24 小时计算？",
+            "possibleInterpretations": []
+          },
+          {
+            "questionId": "Q002",
+            "type": "AMBIGUITY",
+            "paragraphId": "P002",
+            "quote": "每天",
+            "quoteStart": 20,
+            "quoteEnd": 22,
+            "scenario": "同一段内两处“每天”可能指向不同的重置规则。",
+            "question": "两处“每天”是否采用相同的重置口径？",
+            "possibleInterpretations": []
+          },
+          {
+            "questionId": "Q003",
+            "type": "MISSING_BOUNDARY",
+            "paragraphId": "P003",
+            "quote": "<b>规则</b>",
+            "quoteStart": 36,
+            "quoteEnd": 45,
+            "scenario": "原文包含看似 HTML 的字符，但仍应作为普通需求文本读取。",
+            "question": "这段规则是否只是普通文本说明？",
+            "possibleInterpretations": []
+          }
+        ],
+        "metadata": { "model": "fixture", "promptVersion": "review-v2" }
+      }
+    }
+  ]
+}
