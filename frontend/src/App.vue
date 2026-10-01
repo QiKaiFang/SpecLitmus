@@ -12,6 +12,7 @@ const errorMessage = ref('')
 const isReviewing = ref(false)
 
 const characterCount = computed(() => requirementText.value.length)
+const backendFixtureMode = computed(() => metadata.value?.model === 'fixture')
 const hasCurrentResult = computed(() =>
   reviewedRequirement.value !== '' && reviewedRequirement.value === requirementText.value,
 )
@@ -59,8 +60,8 @@ function typeLabel(type) {
         <span class="brand-mark" aria-hidden="true">试</span>
         <span>需求试纸</span>
       </a>
-      <span v-if="fixtureMode" class="fixture-badge">
-        固定测试数据 · {{ fixtureScenario }}
+      <span v-if="fixtureMode || backendFixtureMode" class="fixture-badge">
+        {{ fixtureMode ? `固定测试数据 · ${fixtureScenario}` : '后端固定测试模式' }}
       </span>
       <span v-else class="stage-label">S1 · 首轮审查</span>
     </header>
@@ -163,7 +164,7 @@ function typeLabel(type) {
 
     <footer class="page-footer">
       <span>模型输出是辅助审查建议，业务规则仍由你确认。</span>
-      <span>引用尚未经过后端逐字核验</span>
+      <span>引用已与原文逐字核对，问题语义仍需人工复核</span>
     </footer>
   </main>
 </template>
