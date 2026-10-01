@@ -3,7 +3,7 @@
 版本：v1.1 · 日期：2026-09-30  
 关联：[PRD](PRD.md) · [执行清单](IMPLEMENTATION_PLAN.md) · [Milestone](MILESTONES.md)
 
-> 本文提供待实现、待执行的测试流程。目前没有应用代码、测试类或通过结果。本文约定的 profile、环境变量、FixtureApiClient 和样例文件需要在相应阶段实现；不能把命令未报错、固定数据展示或本文件中的预期结果当成真实模型验收通过。
+> 本文定义分层验收流程和阶段测试约定。当前执行状态见 `IMPLEMENTATION_PLAN.md`，已执行结果以 `docs/evidence/` 中的请求、响应和记录为准。不能把命令未报错、固定数据展示或本文件中的预期结果当成真实模型验收通过。
 
 ## 1. 三种局部环境与一种真实验证
 
@@ -46,10 +46,10 @@ jwebserver 仅提供静态文件；它不承载后端 POST 接口。该命令依
 
 联调：使用 1.1 的后端，在 `http://127.0.0.1:8080/` 打开页面，URL 不带 fixture 参数。
 
-真实模型：按 README 配好环境变量，停止固定模式后运行：
+真实模型：按 README 配好环境变量，停止固定模式后，从 `backend/` 运行 acceptance profile：
 
 ```sh
-APP_AI_MODE=real ./mvnw spring-boot:run
+APP_AI_MODE=real SPRING_AI_MODEL_CHAT=openai ./mvnw -Dspring-boot.run.profiles=acceptance spring-boot:run
 ```
 
 页面不应有固定数据标记。结合后端模式、供应商调用结果、模型标识判断是否真实调用；不能只看页面文案。
