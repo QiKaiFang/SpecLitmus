@@ -8,13 +8,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Component
 public class RequirementParser {
-
-    private static final Pattern PARAGRAPH_SEPARATOR = Pattern.compile("(?:\\n[ \\t]*){2,}");
 
     public RequirementSnapshot parse(String requirementText) {
         if (requirementText == null) {
@@ -28,13 +24,39 @@ public class RequirementParser {
 
     private List<ParagraphSnapshot> splitParagraphs(String text) {
         List<ParagraphSnapshot> paragraphs = new ArrayList<>();
-        Matcher matcher = PARAGRAPH_SEPARATOR.matcher(text);
-        int start = 0;
-        while (matcher.find()) {
-            addParagraph(text, start, matcher.start(), paragraphs);
-            start = matcher.end();
+        int paragraphStart = -1;
+        int paragraphEnd = -1;
+        int lineStart = 0;
+
+        while (lineStart <= text.length()) {
+            int lineEnd = text.indexOf('\n', lineStart);
+            if (lineEnd < 0) {
+                lineEnd = text.length();
+            }
+
+            String line = text.substring(lineStart, lineEnd);
+            if (line.isBlank()) {
+                if (paragraphStart >= 0) {
+                    addParagraph(text, paragraphStart, paragraphEnd, paragraphs);
+                    paragraphStart = -1;
+                    paragraphEnd = -1;
+                }
+            } else {
+                if (paragraphStart < 0) {
+                    paragraphStart = lineStart;
+                }
+                paragraphEnd = lineEnd;
+            }
+
+            if (lineEnd == text.length()) {
+                break;
+            }
+            lineStart = lineEnd + 1;
         }
-        addParagraph(text, start, text.length(), paragraphs);
+
+        if (paragraphStart >= 0) {
+            addParagraph(text, paragraphStart, paragraphEnd, paragraphs);
+        }
         return List.copyOf(paragraphs);
     }
 
