@@ -1,5 +1,12 @@
 package io.speclitmus.ai;
 
+import io.speclitmus.acceptance.AcceptanceBasisDraft;
+import io.speclitmus.acceptance.AcceptanceCaseDraft;
+import io.speclitmus.acceptance.AcceptanceModelOutput;
+import io.speclitmus.acceptance.ConfirmedAnswer;
+import io.speclitmus.acceptance.EvidenceSourceType;
+import io.speclitmus.api.ReviewQuestionResponse;
+import io.speclitmus.api.ReviewResponse;
 import io.speclitmus.requirement.RequirementSnapshot;
 import io.speclitmus.review.InvalidModelOutputException;
 import io.speclitmus.review.QuestionType;
@@ -15,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Component
 @Profile("acceptance")
 @ConditionalOnProperty(prefix = "speclitmus.ai", name = "mode", havingValue = "stub", matchIfMissing = true)
-public class StubAiGateway implements AiGateway {
+public class StubAiGateway implements AiGateway, AcceptanceAiGateway {
 
     private static final String REVIEW_VALID_REQUIREMENT = "用户每天可以领取一次优惠券。\n\n新用户可以额外领取一张。";
 
@@ -36,8 +43,9 @@ public class StubAiGateway implements AiGateway {
         recordCall(calls);
 
         return switch (scenario) {
-            case "review-valid" -> reviewValid(snapshot);
-            case "review-empty" -> List.of();
+            case "review-valid", "workflow-partial", "workflow-all", "workflow",
+                    "acceptance-bad-basis" -> reviewValid(snapshot);
+            case "review-empty", "workflow-empty" -> List.of();
             case "repair-ok", "repair-fail" -> throw invalidFixtureOutput();
             case "bad-paragraph" -> List.of(new ReviewQuestionDraft(
                     QuestionType.AMBIGUITY,
@@ -71,8 +79,9 @@ public class StubAiGateway implements AiGateway {
         recordCall(calls);
 
         return switch (scenario) {
-            case "review-valid" -> reviewValid(snapshot);
-            case "review-empty" -> List.of();
+            case "review-valid", "workflow-partial", "workflow-all", "workflow",
+                    "acceptance-bad-basis" -> reviewValid(snapshot);
+            case "review-empty", "workflow-empty" -> List.of();
             case "repair-ok" -> reviewValid(snapshot);
             case "repair-fail" -> throw invalidFixtureOutput();
             case "bad-paragraph" -> List.of(new ReviewQuestionDraft(
@@ -98,6 +107,28 @@ public class StubAiGateway implements AiGateway {
         return "fixture";
     }
 
+    @Override
+    public AcceptanceModelOutput acceptance(ReviewResponse review, List<ConfirmedAnswer> answers) {
+        RequestCalls calls = new RequestCalls();
+        requestCalls.set(calls);
+        recordCall(calls);
+        return acceptanceFixture(review, answers);
+    }
+
+    @Override
+    public AcceptanceModelOutput repairAcceptance(
+            ReviewResponse review,
+            List<ConfirmedAnswer> answers,
+            String validationError) {
+        RequestCalls calls = requestCalls.get();
+        if (calls == null) {
+            calls = new RequestCalls();
+            requestCalls.set(calls);
+        }
+        recordCall(calls);
+        return acceptanceFixture(review, answers);
+    }
+
     /** Number of model calls made for the current business request on this thread. */
     public int currentRequestCallCount() {
         RequestCalls calls = requestCalls.get();
@@ -116,6 +147,71 @@ public class StubAiGateway implements AiGateway {
 
     private InvalidModelOutputException invalidFixtureOutput() {
         return new InvalidModelOutputException("固定模型返回了不可解析的审查 JSON。");
+    }
+
+    private AcceptanceModelOutput acceptanceFixture(ReviewResponse review, List<ConfirmedAnswer> answers) {
+        return switch (scenario) {
+            case "workflow-empty" -> new AcceptanceModelOutput(
+                    List.of(),
+                    List.of("当前需求没有足够的规则生成验收用例，请补充业务边界后再确认。"));
+            case "acceptance-bad-basis" -> new AcceptanceModelOutput(
+                    List.of(new AcceptanceCaseDraft(
+                            "没有有效依据的用例",
+                            "需求已提交。",
+                            "执行操作。",
+                            "得到结果。",
+                            List.of(new AcceptanceBasisDraft(
+                                    EvidenceSourceType.ANSWER,
+                                    "Q999",
+                                    "不存在的回答")))),
+                    List.of());
+            case "workflow-partial" -> acceptanceForAnswers(review, answers.stream().limit(1).toList());
+            case "workflow-all", "workflow" -> acceptanceForAnswers(review, answers);
+            default -> throw new AiModelUnavailableException();
+        };
+    }
+
+    private AcceptanceModelOutput acceptanceForAnswers(
+            ReviewResponse review,
+            List<ConfirmedAnswer> answers) {
+        if (answers.isEmpty()) {
+            return new AcceptanceModelOutput(
+                    List.of(),
+                    List.of("尚未收到已确认回答，未把待确认规则写成确定预期。"));
+        }
+
+        List<AcceptanceCaseDraft> cases = answers.stream()
+                .map(answer -> caseForAnswer(review, answer))
+                .toList();
+        return new AcceptanceModelOutput(cases, List.of());
+    }
+
+    private AcceptanceCaseDraft caseForAnswer(ReviewResponse review, ConfirmedAnswer answer) {
+        ReviewQuestionResponse question = review.questions().stream()
+                .filter(candidate -> candidate.questionId().equals(answer.questionId()))
+                .findFirst()
+                .orElseThrow();
+        String paragraphText = review.paragraphs().stream()
+                .filter(paragraph -> paragraph.id().equals(question.paragraphId()))
+                .findFirst()
+                .orElseThrow()
+                .text();
+
+        boolean firstQuestion = "Q001".equals(answer.questionId());
+        return new AcceptanceCaseDraft(
+                firstQuestion ? "跨已确认边界执行" : "按已确认的新用户规则处理",
+                firstQuestion ? "用户已经完成一次领取。" : "用户满足原文描述的新用户条件。",
+                firstQuestion ? "用户跨过已确认的重置边界后再次领取。" : "用户申请额外领取优惠券。",
+                firstQuestion ? "系统按照用户确认的重置规则处理。" : "系统按照用户确认的新用户规则处理。",
+                List.of(
+                        new AcceptanceBasisDraft(
+                                EvidenceSourceType.ORIGINAL,
+                                question.paragraphId(),
+                                paragraphText),
+                        new AcceptanceBasisDraft(
+                                EvidenceSourceType.ANSWER,
+                                answer.questionId(),
+                                answer.text())));
     }
 
     private static final class RequestCalls {

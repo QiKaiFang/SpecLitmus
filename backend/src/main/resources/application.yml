@@ -32,6 +32,7 @@ speclitmus:
     mode: ${APP_AI_MODE:real}
     model: ${OPENAI_MODEL:gpt-4o-mini}
     review-prompt-version: review-v2
+    acceptance-prompt-version: acceptance-v1
 
 server:
   address: 127.0.0.1

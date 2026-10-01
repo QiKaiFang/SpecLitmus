@@ -2,6 +2,9 @@ package io.speclitmus.ai;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.speclitmus.acceptance.AcceptanceModelOutput;
+import io.speclitmus.acceptance.ConfirmedAnswer;
+import io.speclitmus.api.ReviewResponse;
 import io.speclitmus.requirement.RequirementSnapshot;
 import io.speclitmus.review.InvalidModelOutputException;
 import io.speclitmus.review.ReviewModelOutput;
@@ -24,7 +27,7 @@ import java.util.Map;
 
 @Component
 @ConditionalOnProperty(prefix = "speclitmus.ai", name = "mode", havingValue = "real", matchIfMissing = true)
-public class OpenAiReviewGateway implements AiGateway {
+public class OpenAiReviewGateway implements AiGateway, AcceptanceAiGateway {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenAiReviewGateway.class);
 
@@ -33,18 +36,21 @@ public class OpenAiReviewGateway implements AiGateway {
     private final ResourceLoader resourceLoader;
     private final String model;
     private final String promptVersion;
+    private final String acceptancePromptVersion;
 
     public OpenAiReviewGateway(
             ObjectProvider<ChatClient.Builder> chatClientBuilderProvider,
             ObjectMapper objectMapper,
             ResourceLoader resourceLoader,
             @Value("${speclitmus.ai.model:gpt-4o-mini}") String model,
-            @Value("${speclitmus.ai.review-prompt-version:review-v2}") String promptVersion) {
+            @Value("${speclitmus.ai.review-prompt-version:review-v2}") String promptVersion,
+            @Value("${speclitmus.ai.acceptance-prompt-version:acceptance-v1}") String acceptancePromptVersion) {
         this.chatClientBuilderProvider = chatClientBuilderProvider;
         this.objectMapper = objectMapper;
         this.resourceLoader = resourceLoader;
         this.model = model;
         this.promptVersion = promptVersion;
+        this.acceptancePromptVersion = acceptancePromptVersion;
     }
 
     @Override
@@ -58,45 +64,17 @@ public class OpenAiReviewGateway implements AiGateway {
     }
 
     private List<ReviewQuestionDraft> generateReview(RequirementSnapshot snapshot, String validationError) {
-        ChatClient.Builder builder;
-        try {
-            builder = chatClientBuilderProvider.getIfAvailable();
-        } catch (Exception exception) {
-            // With the chat model intentionally disabled, Spring's lazy ChatClient
-            // factory can fail while resolving its missing ChatModel dependency.
-            throw new AiModelConfigurationException(exception);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("requirementText", snapshot.requirementText());
+        payload.put("paragraphs", snapshot.paragraphs());
+        if (validationError != null) {
+            payload.put("previousOutputError", validationError);
         }
-        if (builder == null) {
-            throw new AiModelConfigurationException();
-        }
-
-        String rawResponse;
-        try {
-            String systemPrompt = readPrompt();
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("requirementText", snapshot.requirementText());
-            payload.put("paragraphs", snapshot.paragraphs());
-            if (validationError != null) {
-                payload.put("previousOutputError", validationError);
-            }
-            String userPrompt = objectMapper.writeValueAsString(payload);
-            rawResponse = builder.build()
-                    .prompt()
-                    .system(systemPrompt)
-                    .user(userPrompt)
-                    .call()
-                    .content();
-        } catch (AiModelUnavailableException | InvalidModelOutputException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            if (isTimeout(exception)) {
-                throw new AiModelTimeoutException(exception);
-            }
-            throw new AiModelUnavailableException(exception);
-        }
+        String rawResponse = callModel(promptVersion, payload);
 
         try {
-            ReviewModelOutput output = objectMapper.readValue(extractReviewJson(rawResponse), ReviewModelOutput.class);
+            ReviewModelOutput output = objectMapper.readValue(
+                    extractJsonObject(rawResponse, "questions"), ReviewModelOutput.class);
             if (output == null || output.questions() == null) {
                 throw new InvalidModelOutputException("Model response did not contain questions");
             }
@@ -108,12 +86,80 @@ public class OpenAiReviewGateway implements AiGateway {
     }
 
     @Override
+    public AcceptanceModelOutput acceptance(ReviewResponse review, List<ConfirmedAnswer> answers) {
+        return generateAcceptance(review, answers, null);
+    }
+
+    @Override
+    public AcceptanceModelOutput repairAcceptance(
+            ReviewResponse review,
+            List<ConfirmedAnswer> answers,
+            String validationError) {
+        return generateAcceptance(review, answers, validationError);
+    }
+
+    private AcceptanceModelOutput generateAcceptance(
+            ReviewResponse review,
+            List<ConfirmedAnswer> answers,
+            String validationError) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("requirementText", review.requirementText());
+        payload.put("paragraphs", review.paragraphs());
+        payload.put("questions", review.questions());
+        payload.put("confirmedAnswers", answers);
+        if (validationError != null) {
+            payload.put("previousOutputError", validationError);
+        }
+
+        String rawResponse = callModel(acceptancePromptVersion, payload);
+        try {
+            AcceptanceModelOutput output = objectMapper.readValue(
+                    extractJsonObject(rawResponse, "cases"), AcceptanceModelOutput.class);
+            if (output == null || output.cases() == null || output.warnings() == null) {
+                throw new InvalidModelOutputException("Model response did not contain acceptance cases and warnings");
+            }
+            return output;
+        } catch (JsonProcessingException exception) {
+            logJsonFailure(exception);
+            throw new InvalidModelOutputException("Model response was not valid acceptance JSON", exception);
+        }
+    }
+
+    @Override
     public String modelName() {
         return model;
     }
 
-    private String readPrompt() {
-        Resource resource = resourceLoader.getResource("classpath:prompts/" + promptVersion + ".st");
+    private String callModel(String version, Map<String, Object> payload) {
+        ChatClient.Builder builder;
+        try {
+            builder = chatClientBuilderProvider.getIfAvailable();
+        } catch (Exception exception) {
+            throw new AiModelConfigurationException(exception);
+        }
+        if (builder == null) {
+            throw new AiModelConfigurationException();
+        }
+
+        try {
+            return builder.build()
+                    .prompt()
+                    .system(readPrompt(version))
+                    .user(objectMapper.writeValueAsString(payload))
+                    .call()
+                    .content();
+        } catch (AiModelUnavailableException | InvalidModelOutputException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            if (isTimeout(exception)) {
+                throw new AiModelTimeoutException(exception);
+            }
+            throw new AiModelUnavailableException(exception);
+        }
+    }
+
+    private String readPrompt(String version) {
+        Resource resource = resourceLoader.getResource("classpath:prompts/" + version + ".st");
         try (var input = resource.getInputStream()) {
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException exception) {
@@ -121,7 +167,7 @@ public class OpenAiReviewGateway implements AiGateway {
         }
     }
 
-    private String extractReviewJson(String response) {
+    private String extractJsonObject(String response, String requiredField) {
         if (response == null || response.isBlank()) {
             throw new InvalidModelOutputException("Model returned an empty response");
         }
@@ -137,7 +183,7 @@ public class OpenAiReviewGateway implements AiGateway {
 
         try {
             var root = objectMapper.readTree(value);
-            if (root != null && root.isObject() && root.has("questions")) {
+            if (root != null && root.isObject() && root.has(requiredField)) {
                 return value;
             }
         } catch (JsonProcessingException ignored) {
@@ -155,7 +201,7 @@ public class OpenAiReviewGateway implements AiGateway {
             String candidate = value.substring(start, end + 1);
             try {
                 var root = objectMapper.readTree(candidate);
-                if (root != null && root.isObject() && root.has("questions")) {
+                if (root != null && root.isObject() && root.has(requiredField)) {
                     return candidate;
                 }
             } catch (JsonProcessingException ignored) {
