@@ -1,21 +1,53 @@
-# Java / Maven
-backend/target/
+# Java / Maven build output
+**/target/
+backend/src/main/resources/static/
 *.class
+hs_err_pid*
+replay_pid*
 
-# Node / Vue / Vite
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
+# Node / Vue / Vite generated output
+**/node_modules/
+**/dist/
+**/.vite/
+**/coverage/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
 
 # Local configuration and secrets
 .env
 .env.*
 !.env.example
+!**/.env.example
 application-local.yml
 application-local.yaml
+/backend/src/main/resources/application-acceptance.yml
 
-# IDE and operating system
+# IDE metadata and local editor state
 .idea/
 .vscode/
+*.iml
+.project
+.classpath
+.settings/
+.fleet/
+*.swp
+*.swo
+*~
+
+# Operating system metadata
 .DS_Store
+Thumbs.db
+Desktop.ini
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+
+# Local logs
 *.log
+
+# Local acceptance evidence
+docs/evidence/
