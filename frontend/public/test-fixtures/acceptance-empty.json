@@ -1,0 +1,27 @@
+{
+  "review": [{
+    "status": 200,
+    "delayMs": 0,
+    "body": {
+      "reviewId": "fixture-acceptance-empty-001",
+      "requirementText": "用户每天可以领取一次优惠券。\n\n新用户可以额外领取一张。",
+      "requirementHash": "fixture-acceptance-empty-only",
+      "paragraphs": [
+        { "id": "P001", "text": "用户每天可以领取一次优惠券。", "start": 0, "end": 14 },
+        { "id": "P002", "text": "新用户可以额外领取一张。", "start": 16, "end": 28 }
+      ],
+      "questions": [],
+      "metadata": { "model": "fixture", "promptVersion": "review-v2" }
+    }
+  }],
+  "acceptance": [{
+    "status": 200,
+    "delayMs": 0,
+    "body": {
+      "cases": [],
+      "pendingQuestionIds": [],
+      "warnings": ["当前需求没有足够的规则生成验收用例，请补充业务边界后再确认。"],
+      "metadata": { "model": "fixture", "promptVersion": "acceptance-v1" }
+    }
+  }]
+}
