@@ -1,0 +1,47 @@
+{
+  "review": [{
+    "status": 200,
+    "delayMs": 0,
+    "body": {
+      "reviewId": "fixture-report-special-001",
+      "requirementText": "中文需求包含 | 竖线与 `反引号`。\n\n第二段包含多行文本。",
+      "requirementHash": "fixture-report-special-only",
+      "paragraphs": [
+        { "id": "P001", "text": "中文需求包含 | 竖线与 `反引号`。", "start": 0, "end": 19 },
+        { "id": "P002", "text": "第二段包含多行文本。", "start": 21, "end": 31 }
+      ],
+      "questions": [{
+        "questionId": "Q001",
+        "type": "AMBIGUITY",
+        "paragraphId": "P001",
+        "quote": "| 竖线与 `反引号`",
+        "quoteStart": 7,
+        "quoteEnd": 18,
+        "scenario": "输出 Markdown 时，文本中的 | 与 ` 不应破坏报告结构。",
+        "question": "这些符号是否需要逐字保留？",
+        "possibleInterpretations": ["逐字保留", "显示时转义"]
+      }],
+      "metadata": { "model": "fixture", "promptVersion": "review-v2" }
+    }
+  }],
+  "acceptance": [{
+    "status": 200,
+    "delayMs": 0,
+    "body": {
+      "cases": [{
+        "caseId": "C001",
+        "title": "保留 Markdown 形状文本",
+        "given": "原文包含中文、| 和 `反引号`。",
+        "when": "用户下载多行 Markdown 报告。",
+        "then": "报告章节与原始文本均保持完整可读。",
+        "basis": [
+          { "sourceType": "ORIGINAL", "sourceId": "P001", "quote": "| 竖线与 `反引号`" },
+          { "sourceType": "ANSWER", "sourceId": "Q001", "quote": "逐字保留 | 与 ` 符号。" }
+        ]
+      }],
+      "pendingQuestionIds": [],
+      "warnings": ["下载后仍需用 Markdown 查看器人工复核。"],
+      "metadata": { "model": "fixture", "promptVersion": "acceptance-v1" }
+    }
+  }]
+}
