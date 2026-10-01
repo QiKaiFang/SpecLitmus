@@ -2,7 +2,7 @@
 
 需求试纸帮助开发者和测试人员检查需求中的歧义与边界：提交需求后生成有原文依据的反例问题，用户补充规则后生成带依据的验收用例，最后导出 Markdown。模型输出是供人复核的建议，不替用户决定业务规则。
 
-当前已实现 S1—S5：用户可以提交不超过 2,000 字符的非空需求并查看模型生成的反例问题；页面会区分处理中、空结果和失败状态，并支持手动重试。后端核对每条引用是否为所指段落的连续原文，计算 UTF-16 全局偏移；点击“定位”会滚动到原文段落并高亮该引用。用户可选择回答部分或全部问题，生成最多 8 条带原文/回答依据的 Given/When/Then 用例，未回答问题由后端保留为待确认项。审查和验收的无效模型结果都最多修复一次；修改原文或回答会将旧结果标记为过期。草稿保存和 Markdown 导出将在 S6 实现。
+当前已实现 S1—S6 的产品功能：用户可以提交不超过 2,000 字符的非空需求并查看模型生成的反例问题；页面会区分处理中、空结果和失败状态，并支持手动重试。后端核对每条引用是否为所指段落的连续原文，计算 UTF-16 全局偏移；点击“定位”会滚动到原文段落并高亮该引用。用户可选择回答部分或全部问题，生成最多 8 条带原文/回答依据的 Given/When/Then 用例，未回答问题由后端保留为待确认项。审查和验收的无效模型结果都最多修复一次；修改原文或回答会将旧结果标记为过期并禁止导出。需求与回答草稿保存在浏览器本地，恢复后不会冒充有效后端会话；当前有效结果可导出完整 Markdown 报告。
 
 ## 项目逻辑
 
@@ -10,7 +10,8 @@
 2. S1 后端规范化换行、按空行分段并建立原文快照，再调用 Spring AI 适配的 OpenAI 兼容聊天模型生成最多 5 个审查问题。
 3. 后端在调用模型前校验空白输入和 2,000 字符上限，验证问题字段、数量、段落 ID 和逐字引用，创建问题 ID、UTF-16 引用偏移和进程内审查会话；结构或引用校验失败时最多发起一次修复调用，单次业务请求最多两次模型调用。
 4. 用户可为每张问题卡片提交一个最多 500 字符的可选回答；后端拒绝未知/重复问题 ID，只把本轮非空回答作为已确认依据。
-5. 后端生成并校验最多 8 条 Given/When/Then 用例，逐字核对 ORIGINAL/ANSWER 依据，并独立计算待确认问题。后续 S6 将支持 Markdown 导出和浏览器草稿保存。API Key 由后端从环境变量读取。
+5. 后端生成并校验最多 8 条 Given/When/Then 用例，逐字核对 ORIGINAL/ANSWER 依据，并独立计算待确认问题。
+6. 页面只允许导出与当前原文、回答完全一致的有效结果；Markdown 包含模型/Prompt 版本、原文、问题、回答、用例依据、待确认项和提示。API Key 由后端从环境变量读取，不进入草稿或报告。
 
 详细需求和阶段边界见 `docs/requirements/PRD.md`、`IMPLEMENTATION_PLAN.md`、`TEST_PLAYBOOK.md`。
 
@@ -18,7 +19,7 @@
 
 - 后端：Java 21、Spring Boot 3.5.16、Maven；Spring AI 1.1.8 OpenAI starter，通过 OpenAI 兼容接口调用模型。
 - 前端：Vue 3.5.43、Vite 8.2.2、JavaScript；通过 Vite 开发代理预留 `/api` 到后端的转发。
-- v1 不需要数据库：审查会话暂存在后端进程内；浏览器草稿保存将在后续阶段实现。
+- v1 不需要数据库：后端只保留当前进程内最近 20 份审查会话；应用重启或会话被淘汰后需重新审查。浏览器仅保存需求和未绑定的回答草稿。
 
 版本均固定在构建文件中。API 密钥不会写入仓库或发送到前端。
 
@@ -81,7 +82,7 @@ APP_AI_MODE=stub APP_TEST_SCENARIO=review-valid \
 
 S4 的固定后端场景包括 `repair-ok` 和 `repair-fail`：前者第一次返回不可解析结果、第二次返回合法卡片；后者两次都返回不可解析结果。两种场景均按每次业务请求重新计数，分别预期 200/502，且模型调用数均不超过 2 次。`timeout` 和 `unavailable` 场景各只调用一次，不进入格式修复。
 
-S5 可使用 `workflow-partial`、`workflow-all`、`workflow`、`workflow-empty` 和 `acceptance-bad-basis`。`workflow` 支持在同一审查会话中先提交部分回答、再提交全部回答；`workflow-empty` 覆盖 0 张问题卡片；`acceptance-bad-basis` 用于验证编造回答依据在一次修复后仍返回 502。前端固定样例可用 `?fixture=acceptance-partial`、`acceptance-all`、`acceptance-empty` 或 `session-expired`。
+S5 可使用 `workflow-partial`、`workflow-all`、`workflow`、`workflow-empty` 和 `acceptance-bad-basis`。`workflow` 支持在同一审查会话中先提交部分回答、再提交全部回答；`workflow-empty` 覆盖 0 张问题卡片；`acceptance-bad-basis` 用于验证编造回答依据在一次修复后仍返回 502。前端固定样例可用 `?fixture=acceptance-partial`、`acceptance-all`、`acceptance-empty`、`session-expired` 或 `report-special`。其中 `report-special` 用于检查中文、多行、竖线和反引号的 Markdown 导出。
 
 ```sh
 cd frontend
@@ -91,6 +92,17 @@ npm run dev
 Vite 页面位于 `http://127.0.0.1:5173/`，`/api` 请求代理到后端 `8080`。使用 `?fixture=review-valid` 可单独检查固定前端样例；页面会显著标记固定测试数据，并读取静态 JSON，不发起 `/api` 请求。执行静态前端验收时，按 `docs/requirements/TEST_PLAYBOOK.md` 使用 `jwebserver`。
 
 如果使用仓库提供的 `backend/mvnw`，它会按 `.mvn/wrapper/maven-wrapper.properties` 选择 Maven 版本；也可以直接使用 IDE 自带 Maven。
+
+完整自动测试与构建：
+
+```sh
+cd backend
+./mvnw test
+
+cd ../frontend
+npm test
+npm run build
+```
 
 ## 需求阶段
 
