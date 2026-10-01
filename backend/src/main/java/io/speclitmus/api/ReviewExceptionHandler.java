@@ -2,6 +2,7 @@ package io.speclitmus.api;
 
 import io.speclitmus.ai.AiModelTimeoutException;
 import io.speclitmus.ai.AiModelUnavailableException;
+import io.speclitmus.ai.AiModelConfigurationException;
 import io.speclitmus.ai.StubInputUnsupportedException;
 import io.speclitmus.review.InvalidModelOutputException;
 import org.slf4j.Logger;
@@ -60,8 +61,15 @@ public class ReviewExceptionHandler {
                 .body(new ApiError("AI_UNAVAILABLE", "模型服务未配置或暂不可用。", true));
     }
 
+    @ExceptionHandler(AiModelConfigurationException.class)
+    public ResponseEntity<ApiError> handleModelConfiguration() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ApiError("AI_CONFIGURATION_MISSING", "模型尚未配置，请检查 API Key 和模型设置。", true));
+    }
+
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleUnexpectedFailure() {
+    public ResponseEntity<ApiError> handleUnexpectedFailure(Exception exception) {
+        logger.error("Unexpected review request failure", exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiError("INTERNAL_ERROR", "请求处理失败，请稍后重试。", false));
     }
