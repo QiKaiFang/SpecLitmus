@@ -2,13 +2,13 @@
 
 需求试纸帮助开发者和测试人员检查需求中的歧义与边界：提交需求后生成有原文依据的反例问题，用户补充规则后生成带依据的验收用例，最后导出 Markdown。模型输出是供人复核的建议，不替用户决定业务规则。
 
-当前实现 S1 首轮审查：用户可以提交需求并查看模型生成的反例问题。后端核对每条引用是否为所指段落的连续原文；无效模型结果最多重新生成一次。引用定位、高亮、澄清、验收用例、草稿保存和导出尚未实现。
+当前实现 S1 首轮审查和 S2 状态反馈：用户可以提交不超过 2,000 字符的非空需求并查看模型生成的反例问题；页面会区分处理中、空结果和失败状态，并支持手动重试。后端核对每条引用是否为所指段落的连续原文；无效模型结果最多重新生成一次。引用定位、高亮、澄清、验收用例、草稿保存和导出尚未实现。
 
 ## 项目逻辑
 
 1. 用户在 Vue 页面粘贴需求；当前显示字符数，2,000 字符上限和拒绝策略属于 S2。
 2. S1 后端规范化换行、按空行分段并建立原文快照，再调用 Spring AI 适配的 OpenAI 兼容聊天模型生成最多 5 个审查问题。
-3. 后端验证问题字段、数量、段落 ID 和逐字引用，创建问题 ID 和进程内审查会话。引用定位计划在 S3 实现。
+3. 后端在调用模型前校验空白输入和 2,000 字符上限，验证问题字段、数量、段落 ID 和逐字引用，创建问题 ID 和进程内审查会话。引用定位计划在 S3 实现。
 4. 后续阶段将支持用户回答问题，并只把明确确认的回答作为规则依据，生成最多 8 条 Given/When/Then 验收用例，同时列出待确认问题。
 5. 后续阶段将支持 Markdown 导出和浏览器草稿保存。API Key 由后端从环境变量读取。
 
@@ -66,7 +66,7 @@ APP_AI_MODE=real SPRING_AI_MODEL_CHAT=openai AI_REQUEST_TIMEOUT=120s \
   -Dspring-boot.run.profiles=acceptance spring-boot:run
 ```
 
-打开 `http://127.0.0.1:8080/`。`application.yml` 默认激活 acceptance profile；直接在 IDEA 运行入口类时，模式取决于本机 ignored `application-acceptance.yml` 和 IDEA 运行配置。仓库提供的 example 文件默认使用固定网关；真实调用需要 `speclitmus.ai.mode=real` 和 `spring.ai.model.chat=openai`。凭据可从环境变量读取，也可由本机 acceptance 配置提供。缺少有效 Key 时，真实模式会在应用启动阶段报错，不会自动切换为固定数据。
+打开 `http://127.0.0.1:8080/`。`application.yml` 默认激活 acceptance profile；直接在 IDEA 运行入口类时，模式取决于本机 ignored `application-acceptance.yml` 和 IDEA 运行配置。仓库提供的 example 文件默认使用固定网关；真实调用需要 `speclitmus.ai.mode=real` 和 `spring.ai.model.chat=openai`。凭据可从环境变量读取，也可由本机 acceptance 配置提供。真实模式缺少有效 Key 时，应用仍可启动；审查请求会返回可重试的 `503 AI_CONFIGURATION_MISSING`，且不会自动切换为固定数据。
 
 无需真实密钥即可启动后端固定验收模式：
 
