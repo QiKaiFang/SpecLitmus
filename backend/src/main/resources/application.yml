@@ -1,6 +1,37 @@
 spring:
   application:
     name: speclitmus-backend
+  profiles:
+    active:
+      - acceptance
+  http:
+    client:
+      connect-timeout: 5s
+      read-timeout: ${AI_REQUEST_TIMEOUT:30s}
+  ai:
+    model:
+      audio:
+        speech: none
+        transcription: none
+      embedding: none
+      image: none
+      moderation: none
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o-mini}
+          temperature: 0.2
+          max-tokens: 2000
+    retry:
+      max-attempts: 1
+
+speclitmus:
+  ai:
+    mode: ${APP_AI_MODE:real}
+    model: ${OPENAI_MODEL:gpt-4o-mini}
+    review-prompt-version: review-v1
 
 server:
   address: 127.0.0.1

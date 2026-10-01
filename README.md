@@ -2,23 +2,25 @@
 
 需求试纸帮助开发者和测试人员检查需求中的歧义与边界：提交需求后生成有原文依据的反例问题，用户补充规则后生成带依据的验收用例，最后导出 Markdown。模型输出是供人复核的建议，不替用户决定业务规则。
 
+当前实现 S1 首轮审查：用户可以提交需求并查看模型生成的反例问题。引用目前作为建议展示，尚未由后端逐字核验；澄清、验收用例、草稿保存和导出尚未实现。
+
 ## 项目逻辑
 
-1. 用户在 Vue 页面粘贴需求；前后端都将按 Java/JavaScript UTF-16 字符数检查 2,000 字符上限。
-2. 后端规范化换行、分段并建立原文快照，再调用 Spring AI 适配的文本模型生成最多 5 个审查问题。
-3. 后端验证问题字段及原文引用，计算引用位置后保存通过校验的审查会话；前端展示卡片和对应原文。
-4. 用户可以回答问题。后端只把用户明确确认的回答作为规则依据，并生成最多 8 条 Given/When/Then 验收用例，同时列出尚未确认的问题。
-5. 前端用当前有效结果生成 Markdown；需求与回答草稿保存在浏览器 localStorage，API Key 只由后端从环境变量读取。
+1. 用户在 Vue 页面粘贴需求；当前显示字符数，2,000 字符上限和拒绝策略属于 S2。
+2. S1 后端规范化换行、按空行分段并建立原文快照，再调用 Spring AI 适配的 OpenAI 兼容聊天模型生成最多 5 个审查问题。
+3. S1 验证问题字段、数量及段落 ID，创建问题 ID 和进程内审查会话。引用显示为模型建议；逐字校验和定位计划在 S3 实现。
+4. 后续阶段将支持用户回答问题，并只把明确确认的回答作为规则依据，生成最多 8 条 Given/When/Then 验收用例，同时列出待确认问题。
+5. 后续阶段将支持 Markdown 导出和浏览器草稿保存。API Key 由后端从环境变量读取。
 
-此流程来自 `docs/requirements/PRD.md`。本仓库目前只有工程骨架，以上业务流程、接口和模块均为需求设计，尚未实现。
+详细需求和阶段边界见 `docs/requirements/PRD.md`、`IMPLEMENTATION_PLAN.md`、`TEST_PLAYBOOK.md`。
 
 ## 技术栈
 
-- 后端：Java 21、Spring Boot 3.5.16、Maven；Spring AI 1.1.7 依赖管理与 Boot 3.5.x 对齐。模型供应商 starter 将在首个 AI 能力阶段确定。
+- 后端：Java 21、Spring Boot 3.5.16、Maven；Spring AI 1.1.8 OpenAI starter，通过 OpenAI 兼容接口调用模型。
 - 前端：Vue 3.5.43、Vite 8.2.2、JavaScript；通过 Vite 开发代理预留 `/api` 到后端的转发。
-- v1 不需要数据库：PRD 规划后端进程内保存最近 20 个会话，浏览器保存草稿。
+- v1 不需要数据库：审查会话暂存在后端进程内；浏览器草稿保存将在后续阶段实现。
 
-版本均固定在构建文件中。Spring AI 供应商及凭据尚未配置。
+版本均固定在构建文件中。API 密钥不会写入仓库或发送到前端。
 
 ## 目录
 
@@ -33,26 +35,65 @@ docs/requirements/       提供的 PRD、执行清单、测试手册与 Mileston
 
 ## 本地启动
 
-需要 Java 21、Maven 3.6.3+（可使用 IntelliJ IDEA 自带的 Maven）、Node.js 20.19+ 或 22.12+ 和 npm。
+需要 Java 21、Maven（可使用 IntelliJ IDEA 自带的 Maven）、Node.js 20.19+ 或 22.12+ 和 npm。
+
+本机 acceptance 配置不纳入 Git。首次本地运行时，可将 `backend/src/main/resources/application-acceptance.example.yml` 复制为 `application-acceptance.yml`。本地文件既可通过环境变量引用凭据，也可配置 Spring AI 的 `spring.ai.openai.api-key` 和 `spring.ai.openai.base-url`；直接写入的凭据只保留在被 Git 忽略的本地文件中，不要提交。
+
+配置真实模型环境变量后，后端才能使用默认的 `real` 模式：
 
 ```sh
-cd backend
-# 若 Maven 已加入 PATH
-mvn spring-boot:run
-
-# macOS IntelliJ IDEA 默认 Maven 路径
-'/Applications/IntelliJ IDEA.app/Contents/plugins/maven-plugin/lib/maven3/bin/mvn' spring-boot:run
+export OPENAI_API_KEY='你的 API 密钥'
+export OPENAI_BASE_URL='https://api.openai.com' # 兼容服务可替换为其 API 根地址
+export OPENAI_MODEL='gpt-4o-mini'
 ```
 
-另开终端：
+`OPENAI_BASE_URL`、`OPENAI_MODEL` 和 `AI_REQUEST_TIMEOUT` 都可按服务商调整。Spring AI 的 chat completions 路径也可通过 `spring.ai.openai.chat.completions-path` 或 `OPENAI_CHAT_COMPLETIONS_PATH` 配置。火山引擎 Agent Plan 的兼容路径使用 `/chat/completions`；默认值仍为 `/v1/chat/completions`。请勿将密钥提交到 Git。
+
+先构建前端静态文件，供 Spring Boot 在 8080 端口提供页面：
 
 ```sh
 cd frontend
 npm install
+npm run build
+```
+
+再启动后端（macOS IntelliJ IDEA 默认 Maven 路径）：
+
+```sh
+cd ../backend
+'/Applications/IntelliJ IDEA.app/Contents/plugins/maven-plugin/lib/maven3/bin/mvn' spring-boot:run
+```
+
+如要使用放在 `application-acceptance.yml` 的 OpenAI 兼容配置，显式启用真实模型：
+
+```sh
+cd backend
+APP_AI_MODE=real SPRING_AI_MODEL_CHAT=openai \
+  '/Applications/IntelliJ IDEA.app/Contents/plugins/maven-plugin/lib/maven3/bin/mvn' \
+  -Dspring-boot.run.profiles=acceptance spring-boot:run
+```
+
+打开 `http://127.0.0.1:8080/`。acceptance profile 默认关闭 Spring AI 聊天模型初始化并使用固定网关；真实调用需同时设置 `APP_AI_MODE=real` 和 `SPRING_AI_MODEL_CHAT=openai`。凭据可从环境变量读取，也可由本机 ignored acceptance 配置提供。缺少有效 Key 时，真实模式会在应用启动阶段报错，不会自动切换为固定数据。
+
+无需真实密钥即可启动后端固定验收模式：
+
+```sh
+cd backend
+APP_AI_MODE=stub APP_TEST_SCENARIO=review-valid \
+  '/Applications/IntelliJ IDEA.app/Contents/plugins/maven-plugin/lib/maven3/bin/mvn' \
+  spring-boot:run -Dspring-boot.run.profiles=acceptance
+```
+
+固定模式仍执行实际后端解析、验证和会话保存，只替换模型响应。前端本地开发时，另开终端运行：
+
+```sh
+cd frontend
 npm run dev
 ```
 
-前端开发服务器默认运行于 `http://127.0.0.1:5173`，后端端口为 `8080`。当前尚未实现 API 路由或产品功能；Vite `/api` 代理仅为后续联调预留。
+Vite 页面位于 `http://127.0.0.1:5173/`，`/api` 请求代理到后端 `8080`。使用 `?fixture=review-valid` 可单独检查固定前端样例；页面会显著标记固定测试数据，并读取静态 JSON，不发起 `/api` 请求。执行静态前端验收时，按 `docs/requirements/TEST_PLAYBOOK.md` 使用 `jwebserver`。
+
+如果使用仓库提供的 `backend/mvnw`，它会按 `.mvn/wrapper/maven-wrapper.properties` 选择 Maven 版本；也可以直接使用 IDE 自带 Maven。
 
 ## 需求阶段
 
